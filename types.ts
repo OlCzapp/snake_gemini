@@ -24,11 +24,24 @@ export enum GameMode {
   STOP = 'STOP',
 }
 
+export enum GameType {
+  SOLO = 'SOLO',
+  VERSUS = 'VERSUS',
+}
+
+export enum Difficulty {
+  EASY = 'EASY',
+  NORMAL = 'NORMAL',
+  HARD = 'HARD',
+  HARDCORE = 'HARDCORE',
+}
+
 export interface GameSettings {
   foodCount: number;
   snakeColor: string;
   mode: GameMode;
   gridSize: number;
+  difficulty: Difficulty;
 }
 
 export interface GameState {
@@ -43,6 +56,7 @@ export interface GameState {
   isAutoPilot: boolean;
 }
 
+// Fixed missing AICommentary interface definition
 export interface AICommentary {
   message: string;
   type: 'encouragement' | 'sarcasm' | 'advice' | 'congratulations';

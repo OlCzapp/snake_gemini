@@ -1,14 +1,14 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Point, Direction, GameStatus, GameState, GameSettings, GameMode } from '../types';
+import React, { useState, useEffect, useCallback, useRef, useImperativeHandle, forwardRef } from 'react';
+import { Point, Direction, GameStatus, GameState, GameSettings, GameMode, Difficulty } from '../types';
 import { 
   INITIAL_SNAKE, 
   INITIAL_DIRECTION, 
-  INITIAL_SPEED, 
   KEY_MAP, 
   OPPOSITE_DIRECTIONS,
   SPEED_INCREMENT,
-  MIN_SPEED
+  MIN_SPEED,
+  DIFFICULTY_SPEEDS
 } from '../constants';
 
 const COLORS = [
@@ -25,11 +25,29 @@ const MODES = [
   { id: GameMode.STOP, name: 'Zderzak', desc: 'Zatrzymuje na krawędzi' },
 ];
 
+const DIFFICULTIES = [
+  { id: Difficulty.EASY, name: 'Łatwy', color: 'text-green-400' },
+  { id: Difficulty.NORMAL, name: 'Normalny', color: 'text-blue-400' },
+  { id: Difficulty.HARD, name: 'Trudny', color: 'text-orange-400' },
+  { id: Difficulty.HARDCORE, name: 'Hardcore', color: 'text-red-500' },
+];
+
 interface SnakeGameProps {
   onStateChange: (status: GameStatus, score: number) => void;
+  isAIOpponent?: boolean;
+  externalStatus?: GameStatus;
+  sharedSettings?: GameSettings;
 }
 
-const SnakeGame: React.FC<SnakeGameProps> = ({ onStateChange }) => {
+export interface SnakeGameHandle {
+  reset: () => void;
+  pause: () => void;
+  resume: () => void;
+  toggleAutoPilot: () => void;
+  getScore: () => number;
+}
+
+const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, isAIOpponent = false, externalStatus, sharedSettings }, ref) => {
   const [game, setGame] = useState<GameState>({
     snake: INITIAL_SNAKE,
     foods: [],
@@ -37,18 +55,41 @@ const SnakeGame: React.FC<SnakeGameProps> = ({ onStateChange }) => {
     status: GameStatus.IDLE,
     score: 0,
     highScore: Number(localStorage.getItem('highScore')) || 0,
-    speed: INITIAL_SPEED,
-    isAutoPilot: false,
-    settings: {
+    speed: DIFFICULTY_SPEEDS[Difficulty.NORMAL],
+    isAutoPilot: isAIOpponent,
+    settings: sharedSettings || {
       foodCount: 1,
-      snakeColor: COLORS[0].value,
+      snakeColor: isAIOpponent ? COLORS[2].value : COLORS[0].value,
       mode: GameMode.NORMAL,
-      gridSize: 20
+      gridSize: 20,
+      difficulty: Difficulty.NORMAL
     }
   });
 
   const gameLoopRef = useRef<number | null>(null);
   const directionRef = useRef<Direction>(INITIAL_DIRECTION);
+
+  // Sync with shared settings if provided (for Versus mode)
+  useEffect(() => {
+    if (sharedSettings) {
+      setGame(prev => ({ 
+        ...prev, 
+        settings: { ...sharedSettings, snakeColor: isAIOpponent ? COLORS[2].value : sharedSettings.snakeColor },
+        speed: DIFFICULTY_SPEEDS[sharedSettings.difficulty]
+      }));
+    }
+  }, [sharedSettings, isAIOpponent]);
+
+  // Sync status for synchronized start
+  useEffect(() => {
+    if (externalStatus !== undefined && externalStatus !== game.status) {
+      if (externalStatus === GameStatus.PLAYING && game.status === GameStatus.IDLE) {
+        resetGame();
+      } else {
+        setGame(prev => ({ ...prev, status: externalStatus }));
+      }
+    }
+  }, [externalStatus]);
 
   const generateFood = useCallback((snake: Point[], count: number, gridSize: number, existingFoods: Point[] = []): Point[] => {
     const newFoods: Point[] = [...existingFoods];
@@ -77,22 +118,30 @@ const SnakeGame: React.FC<SnakeGameProps> = ({ onStateChange }) => {
       direction: INITIAL_DIRECTION,
       status: GameStatus.PLAYING,
       score: 0,
-      speed: INITIAL_SPEED,
-      isAutoPilot: false
+      speed: DIFFICULTY_SPEEDS[prev.settings.difficulty],
+      isAutoPilot: isAIOpponent
     }));
     onStateChange(GameStatus.PLAYING, 0);
   };
 
+  useImperativeHandle(ref, () => ({
+    reset: resetGame,
+    pause: () => setGame(prev => ({ ...prev, status: GameStatus.PAUSED })),
+    resume: () => setGame(prev => ({ ...prev, status: GameStatus.PLAYING })),
+    toggleAutoPilot: () => setGame(prev => ({ ...prev, isAutoPilot: !prev.isAutoPilot })),
+    getScore: () => game.score
+  }));
+
   const gameOver = () => {
     setGame(prev => {
       const newHighScore = Math.max(prev.score, prev.highScore);
-      localStorage.setItem('highScore', newHighScore.toString());
+      if (!isAIOpponent) localStorage.setItem('highScore', newHighScore.toString());
       onStateChange(GameStatus.GAME_OVER, prev.score);
       return {
         ...prev,
         status: GameStatus.GAME_OVER,
         highScore: newHighScore,
-        isAutoPilot: false
+        isAutoPilot: isAIOpponent
       };
     });
   };
@@ -105,7 +154,6 @@ const SnakeGame: React.FC<SnakeGameProps> = ({ onStateChange }) => {
 
     if (foods.length === 0) return directionRef.current;
 
-    // Helper: normalizacja współrzędnych dla trybu WRAP
     const normalize = (p: Point) => {
       if (currentGameState.settings.mode === GameMode.WRAP) {
         return {
@@ -116,37 +164,29 @@ const SnakeGame: React.FC<SnakeGameProps> = ({ onStateChange }) => {
       return p;
     };
 
-    // Helper: sprawdzenie kolizji dla punktu
     const isCollision = (p: Point, checkSnake: Point[]) => {
       const np = normalize(p);
       if (currentGameState.settings.mode !== GameMode.WRAP) {
         if (np.x < 0 || np.x >= gridSize || np.y < 0 || np.y >= gridSize) return true;
       }
-      // Pomijamy ostatni segment ogona, bo on się przesunie
       return checkSnake.slice(0, -1).some(s => s.x === np.x && s.y === np.y);
     };
 
-    // Obliczanie dostępnej przestrzeni przy pomocy BFS
     const calculateAvailableSpace = (startPoint: Point, checkSnake: Point[]) => {
       const start = normalize(startPoint);
       if (isCollision(start, checkSnake)) return 0;
-
       const visited = new Set<string>();
       const queue: Point[] = [start];
       visited.add(`${start.x},${start.y}`);
       let count = 0;
-
-      while (queue.length > 0 && count < gridSize * gridSize) {
+      const limit = gridSize * gridSize;
+      while (queue.length > 0 && count < limit) {
         const p = queue.shift()!;
         count++;
-
         const neighbors = [
-          { x: p.x, y: p.y - 1 },
-          { x: p.x, y: p.y + 1 },
-          { x: p.x - 1, y: p.y },
-          { x: p.x + 1, y: p.y },
+          { x: p.x, y: p.y - 1 }, { x: p.x, y: p.y + 1 },
+          { x: p.x - 1, y: p.y }, { x: p.x + 1, y: p.y },
         ].map(normalize);
-
         for (const n of neighbors) {
           const key = `${n.x},${n.y}`;
           if (!visited.has(key) && !isCollision(n, checkSnake)) {
@@ -158,7 +198,6 @@ const SnakeGame: React.FC<SnakeGameProps> = ({ onStateChange }) => {
       return count;
     };
 
-    // Wybór najbliższego celu (jedzenia)
     const target = foods.reduce((prev, curr) => {
       const distPrev = Math.abs(normalize(prev).x - head.x) + Math.abs(normalize(prev).y - head.y);
       const distCurr = Math.abs(normalize(curr).x - head.x) + Math.abs(normalize(curr).y - head.y);
@@ -172,10 +211,9 @@ const SnakeGame: React.FC<SnakeGameProps> = ({ onStateChange }) => {
       { dir: Direction.RIGHT, p: { x: head.x + 1, y: head.y } },
     ];
 
-    // Ocena ruchów
     const scoredMoves = possibleMoves
-      .filter(m => !isCollision(m.p, snake)) // Wyklucz natychmiastowe kolizje
-      .filter(m => m.dir !== OPPOSITE_DIRECTIONS[currentGameState.direction]) // Nie zawracaj
+      .filter(m => !isCollision(m.p, snake))
+      .filter(m => m.dir !== OPPOSITE_DIRECTIONS[currentGameState.direction])
       .map(m => {
         const np = normalize(m.p);
         const space = calculateAvailableSpace(m.p, snake);
@@ -184,20 +222,13 @@ const SnakeGame: React.FC<SnakeGameProps> = ({ onStateChange }) => {
       });
 
     if (scoredMoves.length === 0) return directionRef.current;
-
-    // Strategia:
-    // 1. Szukaj ruchów, które dają wystarczająco dużo miejsca (więcej niż długość węża)
-    // 2. Spośród nich wybierz ten najbliższy jedzeniu
-    // 3. Jeśli wszystkie ruchy prowadzą do pułapki, wybierz ten z największą ilością miejsca (przetrwanie)
     
     const viableMoves = scoredMoves.filter(m => m.space >= snake.length);
-    
     if (viableMoves.length > 0) {
       viableMoves.sort((a, b) => a.dist - b.dist);
       return viableMoves[0].dir;
     }
 
-    // Tryb awaryjny - ucieczka tam, gdzie najwięcej miejsca
     scoredMoves.sort((a, b) => b.space - a.space);
     return scoredMoves[0].dir;
   };
@@ -205,15 +236,11 @@ const SnakeGame: React.FC<SnakeGameProps> = ({ onStateChange }) => {
   const moveSnake = useCallback(() => {
     setGame(prev => {
       if (prev.status !== GameStatus.PLAYING) return prev;
-
       let currentDir = directionRef.current;
-      
-      // Logika Autopilota
       if (prev.isAutoPilot) {
         currentDir = getAIDirection(prev);
         directionRef.current = currentDir;
       }
-
       const newHead = { ...prev.snake[0] };
       switch (currentDir) {
         case Direction.UP: newHead.y -= 1; break;
@@ -221,33 +248,23 @@ const SnakeGame: React.FC<SnakeGameProps> = ({ onStateChange }) => {
         case Direction.LEFT: newHead.x -= 1; break;
         case Direction.RIGHT: newHead.x += 1; break;
       }
-
       const gridSize = prev.settings.gridSize;
       const isOutOfBounds = newHead.x < 0 || newHead.x >= gridSize || newHead.y < 0 || newHead.y >= gridSize;
-
       if (isOutOfBounds) {
-        if (prev.settings.mode === GameMode.NORMAL) {
-          gameOver();
-          return prev;
-        } else if (prev.settings.mode === GameMode.WRAP) {
+        if (prev.settings.mode === GameMode.NORMAL) { gameOver(); return prev; } 
+        else if (prev.settings.mode === GameMode.WRAP) {
           newHead.x = (newHead.x + gridSize) % gridSize;
           newHead.y = (newHead.y + gridSize) % gridSize;
-        } else if (prev.settings.mode === GameMode.STOP) {
-          return prev;
-        }
+        } else if (prev.settings.mode === GameMode.STOP) { return prev; }
       }
-
       if (prev.snake.some(segment => segment.x === newHead.x && segment.y === newHead.y)) {
         gameOver();
         return prev;
       }
-
       const newSnake = [newHead, ...prev.snake];
       let newScore = prev.score;
       let newSpeed = prev.speed;
-      
       const foodIndex = prev.foods.findIndex(f => f.x === newHead.x && f.y === newHead.y);
-
       if (foodIndex !== -1) {
         newScore += 1;
         const remainingFoods = prev.foods.filter((_, i) => i !== foodIndex);
@@ -268,12 +285,11 @@ const SnakeGame: React.FC<SnakeGameProps> = ({ onStateChange }) => {
     } else {
       if (gameLoopRef.current) clearInterval(gameLoopRef.current);
     }
-    return () => {
-      if (gameLoopRef.current) clearInterval(gameLoopRef.current);
-    };
+    return () => { if (gameLoopRef.current) clearInterval(gameLoopRef.current); };
   }, [game.status, game.speed, moveSnake]);
 
   useEffect(() => {
+    if (isAIOpponent) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === ' ') {
         e.preventDefault();
@@ -284,56 +300,48 @@ const SnakeGame: React.FC<SnakeGameProps> = ({ onStateChange }) => {
         }
         return;
       }
-
       if (e.key.toLowerCase() === 'p' && game.status !== GameStatus.IDLE && game.status !== GameStatus.GAME_OVER) {
-        setGame(prev => ({
-          ...prev,
-          status: prev.status === GameStatus.PLAYING ? GameStatus.PAUSED : GameStatus.PLAYING
-        }));
+        setGame(prev => ({ ...prev, status: prev.status === GameStatus.PLAYING ? GameStatus.PAUSED : GameStatus.PLAYING }));
         return;
       }
-
       const newDir = KEY_MAP[e.key];
       if (newDir && OPPOSITE_DIRECTIONS[newDir] !== directionRef.current) {
         setGame(prev => ({ ...prev, isAutoPilot: false }));
         directionRef.current = newDir;
       }
     };
-
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [game.status, game.settings]);
+  }, [game.status, game.settings, isAIOpponent]);
 
   const updateSettings = (updates: Partial<GameSettings>) => {
-    setGame(prev => ({
-      ...prev,
-      settings: { ...prev.settings, ...updates }
-    }));
+    setGame(prev => {
+      const newSettings = { ...prev.settings, ...updates };
+      const newSpeed = updates.difficulty ? DIFFICULTY_SPEEDS[updates.difficulty] : prev.speed;
+      return { ...prev, settings: newSettings, speed: newSpeed };
+    });
   };
 
   return (
-    <div className="flex flex-col items-center gap-6">
-      <div className="flex justify-between w-full max-w-[400px] font-orbitron text-xs tracking-widest text-cyan-400">
+    <div className={`flex flex-col items-center gap-4 transition-opacity ${isAIOpponent ? 'opacity-90' : 'opacity-100'}`}>
+      <div className="flex justify-between w-full max-w-[400px] font-orbitron text-xs tracking-widest transition-colors">
         <div className="flex flex-col">
-          <span className="text-slate-500 mb-1 uppercase">Wynik</span>
+          <span className="text-slate-500 mb-1 uppercase text-[8px]">{isAIOpponent ? 'AI SCORE' : 'TWÓJ WYNIK'}</span>
           <span className="text-2xl font-bold">{game.score.toString().padStart(3, '0')}</span>
         </div>
-        <div className="flex flex-col items-center">
-            {game.isAutoPilot && (
-                <span className="text-[10px] bg-cyan-500/20 text-cyan-400 border border-cyan-500/50 px-2 py-1 rounded animate-pulse">AI AUTOPILOT ACTIVE</span>
-            )}
-        </div>
-        <div className="flex flex-col items-end">
-          <span className="text-slate-500 mb-1 uppercase">Rekord</span>
-          <span className="text-2xl font-bold text-purple-400">{game.highScore.toString().padStart(3, '0')}</span>
-        </div>
+        {!isAIOpponent && (
+          <div className="flex flex-col items-end">
+            <span className="text-slate-500 mb-1 uppercase text-[8px]">REKORD</span>
+            <span className="text-2xl font-bold text-purple-500">{game.highScore.toString().padStart(3, '0')}</span>
+          </div>
+        )}
       </div>
 
       <div 
-        className="relative bg-slate-900 border-4 border-slate-800 rounded-lg overflow-hidden neon-glow shadow-2xl"
+        className={`relative bg-slate-900 border-4 ${isAIOpponent ? 'border-purple-800' : 'border-slate-800'} rounded-lg overflow-hidden ${isAIOpponent ? 'shadow-lg shadow-purple-500/20' : 'neon-glow'} shadow-2xl transition-all`}
         style={{ 
-          width: 'min(90vw, 400px)', 
-          height: 'min(90vw, 400px)',
+          width: 'min(90vw, 380px)', 
+          height: 'min(90vw, 380px)',
           display: 'grid',
           gridTemplateColumns: `repeat(${game.settings.gridSize}, 1fr)`,
           gridTemplateRows: `repeat(${game.settings.gridSize}, 1fr)`
@@ -342,7 +350,7 @@ const SnakeGame: React.FC<SnakeGameProps> = ({ onStateChange }) => {
         {game.snake.map((segment, i) => (
           <div
             key={`${i}-${segment.x}-${segment.y}`}
-            className={`rounded-sm snake-body z-10`}
+            className="rounded-sm z-10"
             style={{
               gridColumn: segment.x + 1,
               gridRow: segment.y + 1,
@@ -365,135 +373,70 @@ const SnakeGame: React.FC<SnakeGameProps> = ({ onStateChange }) => {
           />
         ))}
 
-        {game.status !== GameStatus.PLAYING && (
-          <div className="absolute inset-0 bg-slate-950/80 backdrop-blur-sm z-30 flex flex-col items-center justify-center text-center p-6 overflow-y-auto custom-scrollbar">
+        {!isAIOpponent && game.status !== GameStatus.PLAYING && externalStatus === undefined && (
+          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm z-30 flex flex-col items-center justify-center text-center p-8 overflow-y-auto custom-scrollbar">
             {game.status === GameStatus.IDLE && (
-              <div className="w-full space-y-3">
-                <h2 className="text-2xl font-orbitron text-cyan-400 neon-text">KONFIGURACJA</h2>
+              <div className="w-full space-y-4">
+                <h2 className="text-2xl font-orbitron text-cyan-400 neon-text uppercase tracking-widest">Konfiguracja</h2>
                 
                 <div className="space-y-1 text-left">
                   <label className="text-[10px] text-slate-500 uppercase font-orbitron">Rozmiar mapy: {game.settings.gridSize}x{game.settings.gridSize}</label>
-                  <input 
-                    type="range" min="10" max="30" step="5"
-                    value={game.settings.gridSize}
-                    onChange={(e) => updateSettings({ gridSize: parseInt(e.target.value) })}
-                    className="w-full accent-cyan-500"
-                  />
+                  <input type="range" min="10" max="30" step="5" value={game.settings.gridSize} onChange={(e) => updateSettings({ gridSize: parseInt(e.target.value) })} className="w-full accent-cyan-500" />
                 </div>
 
                 <div className="space-y-1 text-left">
-                  <label className="text-[10px] text-slate-500 uppercase font-orbitron">Ilość energii: {game.settings.foodCount}</label>
-                  <input 
-                    type="range" min="1" max="10" 
-                    value={game.settings.foodCount}
-                    onChange={(e) => updateSettings({ foodCount: parseInt(e.target.value) })}
-                    className="w-full accent-cyan-500"
-                  />
+                  <label className="text-[10px] text-slate-500 uppercase font-orbitron">Trudność AI</label>
+                  <div className="flex gap-1">
+                    {DIFFICULTIES.map(diff => (
+                      <button key={diff.id} onClick={() => updateSettings({ difficulty: diff.id })} className={`flex-1 py-1 rounded border text-[8px] font-bold font-orbitron transition-all ${game.settings.difficulty === diff.id ? 'bg-cyan-500/20 border-cyan-500 text-cyan-300' : 'bg-slate-800/50 border-slate-700 text-slate-500'}`}>
+                        {diff.name}
+                      </button>
+                    ))}
+                  </div>
                 </div>
 
                 <div className="space-y-1 text-left">
                   <label className="text-[10px] text-slate-500 uppercase font-orbitron">Kolor węża</label>
                   <div className="flex justify-between gap-1">
                     {COLORS.map(c => (
-                      <button
-                        key={c.value}
-                        onClick={() => updateSettings({ snakeColor: c.value })}
-                        className={`w-7 h-7 rounded-full border-2 transition-all ${game.settings.snakeColor === c.value ? 'border-white scale-110' : 'border-transparent opacity-50'}`}
-                        style={{ backgroundColor: c.value, boxShadow: game.settings.snakeColor === c.value ? c.glow : 'none' }}
-                        title={c.name}
-                      />
+                      <button key={c.value} onClick={() => updateSettings({ snakeColor: c.value })} className={`w-7 h-7 rounded-full border-2 transition-all ${game.settings.snakeColor === c.value ? 'border-white scale-110' : 'border-transparent opacity-50'}`} style={{ backgroundColor: c.value }} />
                     ))}
                   </div>
                 </div>
 
                 <div className="space-y-1 text-left">
                   <label className="text-[10px] text-slate-500 uppercase font-orbitron">Tryb gry</label>
-                  <div className="grid grid-cols-1 gap-1">
+                  <div className="grid grid-cols-3 gap-1">
                     {MODES.map(mode => (
-                      <button
-                        key={mode.id}
-                        onClick={() => updateSettings({ mode: mode.id })}
-                        className={`flex flex-col items-start p-2 rounded-lg border transition-all ${game.settings.mode === mode.id ? 'bg-cyan-500/20 border-cyan-500 text-cyan-100' : 'bg-slate-800/50 border-slate-700 text-slate-400 hover:border-slate-500'}`}
-                      >
-                        <span className="text-[10px] font-bold font-orbitron">{mode.name}</span>
-                        <span className="text-[7px] opacity-70 uppercase tracking-tighter">{mode.desc}</span>
+                      <button key={mode.id} onClick={() => updateSettings({ mode: mode.id })} className={`p-1 rounded border text-[8px] font-bold font-orbitron transition-all ${game.settings.mode === mode.id ? 'bg-cyan-500/20 border-cyan-500 text-cyan-100' : 'bg-slate-800/50 border-slate-700 text-slate-400'}`}>
+                        {mode.name}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                <button 
-                  onClick={resetGame}
-                  className="w-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-orbitron font-bold py-2 px-8 rounded-xl transition-all hover:scale-105 active:scale-95 mt-1"
-                >
-                  START SYSTEMU
-                </button>
+                <button onClick={resetGame} className="w-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-orbitron font-bold py-3 rounded-xl transition-all active:scale-95 shadow-lg shadow-cyan-500/20 uppercase text-xs tracking-widest">Inicjalizuj System</button>
               </div>
-            )}
-
-            {game.status === GameStatus.PAUSED && (
-              <>
-                <h2 className="text-3xl font-orbitron text-yellow-400 mb-6 neon-text">PAUZA</h2>
-                <button 
-                  onClick={() => setGame(prev => ({ ...prev, status: GameStatus.PLAYING }))}
-                  className="bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-orbitron font-bold py-3 px-8 rounded-full transition-all"
-                >
-                  WZNÓW
-                </button>
-              </>
             )}
 
             {game.status === GameStatus.GAME_OVER && (
               <>
-                <h2 className="text-4xl font-orbitron text-red-500 mb-2 neon-text">AWARIA SYSTEMU</h2>
-                <p className="text-slate-400 mb-6 font-orbitron text-sm uppercase">WYNIK KOŃCOWY: {game.score}</p>
-                <button 
-                  onClick={() => setGame(prev => ({ ...prev, status: GameStatus.IDLE }))}
-                  className="bg-red-500 hover:bg-red-400 text-slate-950 font-orbitron font-bold py-3 px-8 rounded-full transition-all hover:scale-105"
-                >
-                  MENU GŁÓWNE
-                </button>
+                <h2 className="text-4xl font-orbitron text-red-500 mb-4 neon-text uppercase tracking-widest">Awaria</h2>
+                <p className="text-slate-400 mb-8 font-orbitron text-xs uppercase tracking-tighter">Uzyskany Wynik: {game.score}</p>
+                <button onClick={() => setGame(prev => ({ ...prev, status: GameStatus.IDLE }))} className="bg-red-500 hover:bg-red-400 text-slate-950 font-orbitron font-bold py-3 px-10 rounded-full transition-all uppercase text-xs tracking-widest">Główne Menu</button>
               </>
             )}
           </div>
         )}
-      </div>
-
-      <div className="text-slate-500 text-[10px] uppercase font-orbitron text-center">
-          <p>Podczas gry: <span className="text-cyan-400">SPACJA</span> = Przełącz Autopilota AI</p>
-          <p><span className="text-yellow-400">P</span> = Pauza</p>
-      </div>
-
-      <div className="grid grid-cols-3 gap-2 md:hidden">
-        <div />
-        <button 
-          className="w-14 h-14 bg-slate-800 rounded-xl border border-slate-700 flex items-center justify-center active:bg-cyan-900 transition-colors"
-          onClick={() => directionRef.current !== Direction.DOWN && (directionRef.current = Direction.UP)}
-        >
-          <i className="fa-solid fa-chevron-up text-cyan-400"></i>
-        </button>
-        <div />
-        <button 
-          className="w-14 h-14 bg-slate-800 rounded-xl border border-slate-700 flex items-center justify-center active:bg-cyan-900 transition-colors"
-          onClick={() => directionRef.current !== Direction.RIGHT && (directionRef.current = Direction.LEFT)}
-        >
-          <i className="fa-solid fa-chevron-left text-cyan-400"></i>
-        </button>
-        <button 
-          className="w-14 h-14 bg-slate-800 rounded-xl border border-slate-700 flex items-center justify-center active:bg-cyan-900 transition-colors"
-          onClick={() => directionRef.current !== Direction.UP && (directionRef.current = Direction.DOWN)}
-        >
-          <i className="fa-solid fa-chevron-down text-cyan-400"></i>
-        </button>
-        <button 
-          className="w-14 h-14 bg-slate-800 rounded-xl border border-slate-700 flex items-center justify-center active:bg-cyan-900 transition-colors"
-          onClick={() => directionRef.current !== Direction.LEFT && (directionRef.current = Direction.RIGHT)}
-        >
-          <i className="fa-solid fa-chevron-right text-cyan-400"></i>
-        </button>
+        
+        {isAIOpponent && (
+          <div className="absolute top-2 right-2 z-40 bg-purple-900/40 px-3 py-1 rounded border border-purple-500/50 backdrop-blur-sm">
+             <span className="text-[8px] font-orbitron text-purple-200 uppercase tracking-widest animate-pulse">AI Core Active</span>
+          </div>
+        )}
       </div>
     </div>
   );
-};
+});
 
 export default SnakeGame;

@@ -2,7 +2,8 @@
 import { GoogleGenAI } from "@google/genai";
 import { AICommentary } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
+// Always use direct process.env.API_KEY per @google/genai guidelines
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 const FALLBACK_COMMENTARIES: AICommentary[] = [
   { message: "Twój wąż porusza się szybciej niż moje procesory w poniedziałek.", type: "encouragement" },
@@ -26,6 +27,7 @@ export const getAICommentary = async (score: number, status: string, retries = 2
     TWOJA ODPOWIEDŹ MUSI BYĆ W JĘZYKU POLSKIM.
     Formatuj odpowiedź jako obiekt JSON z dwoma polami: 'message' (string) i 'type' (jedno z: 'encouragement', 'sarcasm', 'advice', 'congratulations').`;
 
+    // Fixed: Always use ai.models.generateContent to query GenAI with both the model name and prompt.
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
@@ -34,6 +36,7 @@ export const getAICommentary = async (score: number, status: string, retries = 2
       }
     });
 
+    // Fixed: Directly access .text property from GenerateContentResponse
     const text = response.text;
     if (!text) throw new Error("Empty response");
     
@@ -42,7 +45,7 @@ export const getAICommentary = async (score: number, status: string, retries = 2
   } catch (error: any) {
     console.warn(`Gemini API Error (Próba: ${3 - retries}):`, error);
 
-    // Jeśli błąd to 429 (Resource Exhausted) i mamy jeszcze próby
+    // Jeśli błąd to 429 (Resource Exhausted) i mamy jeszcze próby, ponawiamy z opóźnieniem
     if (error?.message?.includes("429") || error?.status === 429) {
       if (retries > 0) {
         await sleep(delay);

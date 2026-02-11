@@ -1,5 +1,5 @@
 {
   "name": "Neon Snake AI",
-  "description": "A classic snake game with a futuristic neon aesthetic and an integrated Gemini AI commentator that reacts to your gameplay performance in real-time.",
+  "description": "Klasyczna gra Snake w futurystycznej neonowej estetyce z zaawansowanym trybem rywalizacji przeciwko inteligentnemu autopilotowi AI.",
   "requestFramePermissions": []
 }

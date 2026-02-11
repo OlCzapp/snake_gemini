@@ -1,10 +1,17 @@
 
-import { Direction, Point } from './types';
+import { Direction, Point, Difficulty } from './types';
 
 export const GRID_SIZE = 20;
 export const INITIAL_SPEED = 150;
 export const SPEED_INCREMENT = 2;
 export const MIN_SPEED = 60;
+
+export const DIFFICULTY_SPEEDS: Record<Difficulty, number> = {
+  [Difficulty.EASY]: 200,
+  [Difficulty.NORMAL]: 150,
+  [Difficulty.HARD]: 100,
+  [Difficulty.HARDCORE]: 60,
+};
 
 export const INITIAL_SNAKE: Point[] = [
   { x: 10, y: 10 },
