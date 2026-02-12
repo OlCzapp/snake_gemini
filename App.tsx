@@ -14,7 +14,7 @@ const App: React.FC = () => {
   const [versusWinner, setVersusWinner] = useState<'player' | 'ai' | 'draw' | null>(null);
 
   const [versusSettings, setVersusSettings] = useState<GameSettings>({
-    foodCount: 1,
+    foodCount: 10,
     snakeColor: '#22d3ee',
     mode: GameMode.NORMAL,
     gridSize: 20,
@@ -33,17 +33,15 @@ const App: React.FC = () => {
     }
 
     if (gameType === GameType.VERSUS && versusStatus === GameStatus.PLAYING) {
-      // Wygrana przez osiągnięcie celu
       if (status === GameStatus.WON) {
         setVersusStatus(GameStatus.GAME_OVER);
         setVersusWinner(isAI ? 'ai' : 'player');
         return;
       }
       
-      // Przegrana przez kolizję
       if (status === GameStatus.GAME_OVER) {
         setVersusStatus(GameStatus.GAME_OVER);
-        setVersusWinner(isAI ? 'player' : 'ai'); // Jeśli AI padło, wygrywa gracz i na odwrót
+        setVersusWinner(isAI ? 'player' : 'ai');
         return;
       }
     }
@@ -110,46 +108,13 @@ const App: React.FC = () => {
             
             <div className="space-y-6">
                <div>
-                 <label className={`text-[10px] uppercase font-orbitron mb-3 block ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Cel Punktowy</label>
+                 <label className={`text-[10px] uppercase font-orbitron mb-3 block ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Tryb Gry</label>
                  <div className="grid grid-cols-2 gap-2">
-                   <button 
-                     onClick={() => setVersusSettings(prev => ({ ...prev, targetScore: 20 }))}
-                     className={`py-3 rounded border font-orbitron text-[11px] transition-all ${versusSettings.targetScore === 20 ? 'bg-cyan-500 border-cyan-400 text-slate-950 shadow-md' : isDark ? 'bg-slate-800 border-slate-700 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-500'}`}
-                   >
-                     LIMIT: 20
-                   </button>
-                   <button 
-                     onClick={() => setVersusSettings(prev => ({ ...prev, targetScore: 'max' }))}
-                     className={`py-3 rounded border font-orbitron text-[11px] transition-all ${versusSettings.targetScore === 'max' ? 'bg-purple-500 border-purple-400 text-white shadow-md' : isDark ? 'bg-slate-800 border-slate-700 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-500'}`}
-                   >
-                     MAKSIMUM
-                   </button>
-                 </div>
-               </div>
-
-               <div>
-                 <label className={`text-[10px] uppercase font-orbitron mb-3 block ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Poziom Trudności AI</label>
-                 <div className="grid grid-cols-2 gap-2">
-                   {Object.values(Difficulty).map(d => (
-                     <button 
-                       key={d} 
-                       onClick={() => setVersusSettings(prev => ({ ...prev, difficulty: d }))}
-                       className={`py-2 rounded border font-orbitron text-[10px] transition-all ${versusSettings.difficulty === d ? 'bg-purple-500 border-purple-400 text-white shadow-md' : isDark ? 'bg-slate-800 border-slate-700 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-500'}`}
-                     >
-                       {d}
-                     </button>
-                   ))}
-                 </div>
-               </div>
-
-               <div>
-                 <label className={`text-[10px] uppercase font-orbitron mb-3 block ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Tryb Gry (Dla obu graczy)</label>
-                 <div className="grid grid-cols-4 gap-1">
                    {MODES_INFO.map(m => (
                      <button 
                        key={m.id} 
                        onClick={() => setVersusSettings(prev => ({ ...prev, mode: m.id }))}
-                       className={`py-2 rounded border font-orbitron text-[8px] transition-all ${versusSettings.mode === m.id ? 'bg-cyan-500 border-cyan-400 text-white' : isDark ? 'bg-slate-800 border-slate-700 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-500'}`}
+                       className={`py-3 rounded-xl border font-orbitron text-[10px] tracking-widest transition-all ${versusSettings.mode === m.id ? 'bg-cyan-500 border-cyan-400 text-slate-950 shadow-lg shadow-cyan-500/20' : isDark ? 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500' : 'bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200'}`}
                      >
                        {m.name}
                      </button>
@@ -157,9 +122,37 @@ const App: React.FC = () => {
                  </div>
                </div>
 
+               <div>
+                 <label className={`text-[10px] uppercase font-orbitron mb-3 block ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Cel Gry</label>
+                 <div className="grid grid-cols-2 gap-2">
+                    <button 
+                      onClick={() => setVersusSettings(prev => ({ ...prev, targetScore: 20 }))}
+                      className={`py-4 rounded-xl border font-orbitron text-[11px] tracking-widest transition-all ${versusSettings.targetScore === 20 ? 'bg-purple-500 border-purple-400 text-white shadow-lg shadow-purple-500/20 scale-[1.02]' : isDark ? 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500' : 'bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200'}`}
+                    >
+                      LIMIT: 20
+                    </button>
+                    <button 
+                      onClick={() => setVersusSettings(prev => ({ ...prev, targetScore: 'max' }))}
+                      className={`py-4 rounded-xl border font-orbitron text-[11px] tracking-widest transition-all ${versusSettings.targetScore === 'max' ? 'bg-purple-500 border-purple-400 text-white shadow-lg shadow-purple-500/20 scale-[1.02]' : isDark ? 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-500' : 'bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200'}`}
+                    >
+                      MAKSIMUM
+                    </button>
+                 </div>
+               </div>
+
+               <div>
+                 <label className={`text-[10px] uppercase font-orbitron mb-3 block ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Rozmiar Siatki: {versusSettings.gridSize}</label>
+                 <input type="range" min="10" max="30" step="5" value={versusSettings.gridSize} onChange={(e) => setVersusSettings(prev => ({ ...prev, gridSize: parseInt(e.target.value) }))} className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-purple-500" />
+               </div>
+
+               <div>
+                 <label className={`text-[10px] uppercase font-orbitron mb-3 block ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Liczba kulek: {versusSettings.foodCount}</label>
+                 <input type="range" min="10" max="20" step="1" value={versusSettings.foodCount} onChange={(e) => setVersusSettings(prev => ({ ...prev, foodCount: parseInt(e.target.value) }))} className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
+               </div>
+
                <button 
                 onClick={startVersus} 
-                className="w-full py-5 bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white font-orbitron font-bold rounded-xl mt-4 shadow-xl transition-all active:scale-95 uppercase tracking-widest text-sm"
+                className="w-full py-5 bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white font-orbitron font-bold rounded-2xl mt-4 shadow-2xl transition-all active:scale-95 uppercase tracking-widest text-sm"
                >
                  Inicjalizuj Walkę
                </button>
@@ -182,35 +175,43 @@ const App: React.FC = () => {
 
           {gameType === GameType.VERSUS && (
             <>
-              <div className={`flex flex-col items-center justify-center py-6 px-6 rounded-2xl border transition-all w-64 flex-shrink-0 ${isDark ? 'bg-slate-900/50 border-slate-800 shadow-inner' : 'bg-white border-slate-200 shadow-lg'}`}>
-                <span className={`text-[10px] font-orbitron mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>WYNIK POJEDYNKU</span>
-                <div className={`text-5xl font-bold font-orbitron transition-all text-center tabular-nums ${playerScore > aiScore ? 'text-cyan-500' : aiScore > playerScore ? 'text-purple-500' : isDark ? 'text-white' : 'text-slate-800'}`}>
-                  {playerScore}:{aiScore}
-                </div>
-                
-                <div className="h-28 flex flex-col items-center justify-center mt-2">
-                  {versusStatus === GameStatus.GAME_OVER ? (
-                    <div className="text-center animate-in fade-in zoom-in duration-300">
-                      <p className={`font-orbitron text-sm uppercase mb-3 font-bold ${versusWinner === 'player' ? 'text-cyan-400' : versusWinner === 'ai' ? 'text-purple-400' : 'text-slate-500'}`}>
-                        {versusWinner === 'player' ? 'GRACZ WYGRYWA!' : versusWinner === 'ai' ? 'AI WYGRYWA!' : 'REMIS'}
-                      </p>
-                      <button 
-                        onClick={() => setVersusStatus(GameStatus.IDLE)} 
-                        className={`text-[10px] font-orbitron uppercase tracking-widest px-6 py-2.5 rounded-xl transition-all ${isDark ? 'bg-slate-700 hover:bg-slate-600 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'}`}
-                      >
-                          Konfiguruj Ponownie
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center gap-3">
-                       <span className="text-[9px] font-orbitron text-slate-500 mb-1">CEL: {versusSettings.targetScore === 'max' ? 'MAKS' : versusSettings.targetScore}</span>
-                       <div className="flex gap-1.5">
-                          <div className={`w-2 h-2 rounded-full animate-bounce bg-cyan-500`} style={{ animationDelay: '0ms' }}></div>
-                          <div className={`w-2 h-2 rounded-full animate-bounce bg-purple-500`} style={{ animationDelay: '150ms' }}></div>
-                          <div className={`w-2 h-2 rounded-full animate-bounce bg-cyan-500`} style={{ animationDelay: '300ms' }}></div>
-                       </div>
-                    </div>
-                  )}
+              <div className="flex flex-col gap-4 w-64 flex-shrink-0">
+                <div className={`flex flex-col items-center justify-center py-6 px-6 rounded-2xl border transition-all ${isDark ? 'bg-slate-900/50 border-slate-800 shadow-inner' : 'bg-white border-slate-200 shadow-lg'}`}>
+                  <span className={`text-[10px] font-orbitron mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>WYNIK POJEDYNKU</span>
+                  <div className={`text-5xl font-bold font-orbitron transition-all text-center tabular-nums ${playerScore > aiScore ? 'text-cyan-500' : aiScore > playerScore ? 'text-purple-500' : isDark ? 'text-white' : 'text-slate-800'}`}>
+                    {playerScore}:{aiScore}
+                  </div>
+                  
+                  <div className="h-28 flex flex-col items-center justify-center mt-2 w-full">
+                    {versusStatus === GameStatus.GAME_OVER ? (
+                      <div className="text-center animate-in fade-in zoom-in duration-300">
+                        <p className={`font-orbitron text-sm uppercase mb-3 font-bold ${versusWinner === 'player' ? 'text-cyan-400' : versusWinner === 'ai' ? 'text-purple-400' : 'text-slate-500'}`}>
+                          {versusWinner === 'player' ? 'GRACZ WYGRYWA!' : versusWinner === 'ai' ? 'AI WYGRYWA!' : 'REMIS'}
+                        </p>
+                        <button 
+                          onClick={() => setVersusStatus(GameStatus.IDLE)} 
+                          className={`text-[10px] font-orbitron uppercase tracking-widest px-6 py-2.5 rounded-xl transition-all ${isDark ? 'bg-slate-700 hover:bg-slate-600 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'}`}
+                        >
+                            Konfiguruj Ponownie
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-3">
+                         <span className="text-[9px] font-orbitron text-slate-500 mb-1">CEL: {versusSettings.targetScore === 'max' ? 'MAKS' : versusSettings.targetScore}</span>
+                         <div className="flex gap-1.5">
+                            <div className={`w-2 h-2 rounded-full animate-bounce bg-cyan-500`} style={{ animationDelay: '0ms' }}></div>
+                            <div className={`w-2 h-2 rounded-full animate-bounce bg-purple-500`} style={{ animationDelay: '150ms' }}></div>
+                            <div className={`w-2 h-2 rounded-full animate-bounce bg-cyan-500`} style={{ animationDelay: '300ms' }}></div>
+                         </div>
+                         <button 
+                           onClick={() => setVersusStatus(GameStatus.IDLE)}
+                           className="text-[9px] font-orbitron uppercase text-red-500/70 hover:text-red-500 transition-colors mt-2"
+                         >
+                           Zakończ Walkę
+                         </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
 
@@ -237,7 +238,7 @@ const App: React.FC = () => {
       </button>
 
       <footer className={`mt-12 text-[10px] text-center uppercase tracking-widest max-w-lg transition-colors ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>
-        Walka do celu: Przegrywa ten, kto dotknie ściany lub siebie. Wygrywa ten, kto pierwszy osiągnie wyznaczony cel.
+        Walka o dominację: Przegrywa ten, kto dotknie ściany lub siebie. Wygrywa ten, kto pierwszy osiągnie cel.
         <br />
         &copy; {new Date().getFullYear()} Neon Labs • Gemini Engine
       </footer>

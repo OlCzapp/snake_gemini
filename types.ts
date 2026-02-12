@@ -60,6 +60,7 @@ export interface GameState {
   isAutoPilot: boolean;
 }
 
+// Fixed: Added missing AICommentary interface to resolve import errors in other components
 export interface AICommentary {
   message: string;
   type: 'encouragement' | 'sarcasm' | 'advice' | 'congratulations';
