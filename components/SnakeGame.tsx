@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback, useRef, useImperativeHandle, forwardRef } from 'react';
-import { Point, Direction, GameStatus, GameState, GameSettings, GameMode, Difficulty } from '../types';
+import { Point, Food, Direction, GameStatus, GameState, GameSettings, GameMode, Difficulty, FoodMode } from '../types';
 import { 
   INITIAL_SNAKE, 
   INITIAL_DIRECTION, 
@@ -24,6 +24,12 @@ const MODES = [
   { id: GameMode.WRAP, name: 'Tunel', desc: 'Przenikanie ścian' },
   { id: GameMode.STOP, name: 'Zderzak', desc: 'Zatrzymuje na krawędzi' },
   { id: GameMode.GOD, name: 'Boski', desc: 'Nieśmiertelność i blokada na ogonie' },
+];
+
+const FOOD_MODES_INFO = [
+  { id: FoodMode.NORMAL, name: 'Normalny', icon: 'fa-bowling-ball', desc: 'Kule są stałe' },
+  { id: FoodMode.MAGNET, name: 'Magnez', icon: 'fa-magnet', desc: 'Kule śledzą węża' },
+  { id: FoodMode.FADING, name: 'Znikanie', icon: 'fa-wind', desc: 'Kule nikną po 10s' },
 ];
 
 interface SnakeGameProps {
@@ -55,6 +61,7 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
     isAutoPilot: isAIOpponent,
     settings: sharedSettings || {
       foodCount: 10,
+      foodMode: FoodMode.NORMAL,
       snakeColor: isAIOpponent ? COLORS[2].value : COLORS[0].value,
       mode: GameMode.NORMAL,
       gridSize: 20,
@@ -68,6 +75,7 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
   const lastProcessedDirectionRef = useRef<Direction>(INITIAL_DIRECTION);
   const stallTimerRef = useRef<number | null>(null);
   const touchStartRef = useRef<Point | null>(null);
+  const magnetCounterRef = useRef<number>(0);
 
   useEffect(() => {
     if (sharedSettings) {
@@ -89,20 +97,20 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
     }
   }, [externalStatus]);
 
-  const generateFood = useCallback((snake: Point[], count: number, gridSize: number, existingFoods: Point[] = []): Point[] => {
-    const newFoods: Point[] = [...existingFoods];
+  const generateFood = useCallback((snake: Point[], count: number, gridSize: number, existingFoods: Food[] = []): Food[] => {
+    const newFoods: Food[] = [...existingFoods];
     const maxPossibleFoods = (gridSize * gridSize) - snake.length;
     const targetCount = Math.min(count, maxPossibleFoods);
 
     while (newFoods.length < targetCount) {
-      const food = {
+      const foodPos = {
         x: Math.floor(Math.random() * gridSize),
         y: Math.floor(Math.random() * gridSize),
       };
-      const onSnake = snake.some(s => s.x === food.x && s.y === food.y);
-      const onFood = newFoods.some(f => f.x === food.x && f.y === food.y);
+      const onSnake = snake.some(s => s.x === foodPos.x && s.y === foodPos.y);
+      const onFood = newFoods.some(f => f.x === foodPos.x && f.y === foodPos.y);
       if (!onSnake && !onFood) {
-        newFoods.push(food);
+        newFoods.push({ ...foodPos, createdAt: Date.now() });
       }
     }
     return newFoods;
@@ -332,20 +340,52 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
       let newSpeed = prev.speed;
       const foodIndex = prev.foods.findIndex(f => f.x === newHead.x && f.y === newHead.y);
 
+      // Handle Food Logic (Magnet & Fading)
+      let currentFoods = [...prev.foods];
+      
+      if (prev.settings.foodMode === FoodMode.FADING) {
+        const now = Date.now();
+        currentFoods = currentFoods.filter(f => now - f.createdAt < 10000);
+      }
+      
+      if (prev.settings.foodMode === FoodMode.MAGNET) {
+        magnetCounterRef.current++;
+        if (magnetCounterRef.current >= 4) {
+          magnetCounterRef.current = 0;
+          currentFoods = currentFoods.map(food => {
+            let nx = food.x;
+            let ny = food.y;
+            if (food.x < newHead.x) nx++;
+            else if (food.x > newHead.x) nx--;
+            if (food.y < newHead.y) ny++;
+            else if (food.y > newHead.y) ny--;
+            
+            // Check collisions with snake or other foods
+            const collides = newSnake.some(s => s.x === nx && s.y === ny) || currentFoods.some(f => f !== food && f.x === nx && f.y === ny);
+            if (!collides) return { ...food, x: nx, y: ny };
+            return food;
+          });
+        }
+      }
+
       if (foodIndex !== -1) {
         newScore += 1;
         if (newScore >= targetGoal) {
            gameWon();
            return { ...prev, score: newScore, snake: newSnake, status: GameStatus.WON };
         }
-        const remainingFoods = prev.foods.filter((_, i) => i !== foodIndex);
+        const remainingFoods = currentFoods.filter((_, i) => i !== foodIndex);
         const newFoods = generateFood(newSnake, prev.settings.foodCount, gridSize, remainingFoods);
         newSpeed = Math.max(MIN_SPEED, prev.speed - SPEED_INCREMENT);
         onStateChange(GameStatus.PLAYING, newScore);
         return { ...prev, snake: newSnake, foods: newFoods, score: newScore, speed: newSpeed, direction: currentDir };
       } else {
         newSnake.pop();
-        return { ...prev, snake: newSnake, direction: currentDir };
+        // If some food faded away, respawn
+        if (currentFoods.length < prev.settings.foodCount) {
+          currentFoods = generateFood(newSnake, prev.settings.foodCount, gridSize, currentFoods);
+        }
+        return { ...prev, snake: newSnake, foods: currentFoods, direction: currentDir };
       }
     });
   }, [generateFood, onStateChange]);
@@ -451,9 +491,16 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
         {game.snake.map((segment, i) => (
           <div key={`${i}-${segment.x}-${segment.y}`} className="rounded-sm z-10" style={{ gridColumn: segment.x + 1, gridRow: segment.y + 1, backgroundColor: game.settings.snakeColor, opacity: i === 0 ? 1 : 0.7, boxShadow: i === 0 ? `0 0 10px ${game.settings.snakeColor}` : 'none' }} />
         ))}
-        {game.foods.map((food, i) => (
-          <div key={`food-${i}-${food.x}-${food.y}`} className="bg-purple-500 rounded-full animate-pulse z-20" style={{ gridColumn: food.x + 1, gridRow: food.y + 1, boxShadow: '0 0 15px #a855f7' }} />
-        ))}
+        {game.foods.map((food, i) => {
+          let opacity = 1;
+          if (game.settings.foodMode === FoodMode.FADING) {
+            const age = Date.now() - food.createdAt;
+            opacity = Math.max(0, 1 - age / 10000);
+          }
+          return (
+            <div key={`food-${i}-${food.x}-${food.y}`} className="bg-purple-500 rounded-full animate-pulse z-20" style={{ gridColumn: food.x + 1, gridRow: food.y + 1, boxShadow: '0 0 15px #a855f7', opacity }} />
+          );
+        })}
 
         {!isAIOpponent && (game.status === GameStatus.PLAYING || game.status === GameStatus.STALLED) && externalStatus === undefined && (
           <button 
@@ -464,7 +511,6 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
           </button>
         )}
 
-        {/* Fixed: Removed redundant and logically conflicting check for GameStatus.STALLED to allow the Stalled UI to render and fix TS error */}
         {!isAIOpponent && game.status !== GameStatus.PLAYING && externalStatus === undefined && (
           <div className={`absolute inset-0 ${isDark ? 'bg-slate-950/90' : 'bg-white/95'} backdrop-blur-md z-30 flex flex-col items-center justify-center text-center p-8 md:p-12 overflow-y-auto custom-scrollbar`}>
             {game.status === GameStatus.IDLE && (
@@ -478,7 +524,7 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
 
                 <div className="space-y-2 text-left">
                   <label className={`text-[10px] md:text-[12px] ${isDark ? 'text-slate-500' : 'text-slate-400'} uppercase font-orbitron flex justify-between`}>Liczba kulek <span>{game.settings.foodCount}</span></label>
-                  <input type="range" min="10" max="20" step="1" value={game.settings.foodCount} onChange={(e) => updateSettings({ foodCount: parseInt(e.target.value) })} className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
+                  <input type="range" min="1" max="20" step="1" value={game.settings.foodCount} onChange={(e) => updateSettings({ foodCount: parseInt(e.target.value) })} className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
                 </div>
 
                 <div className="space-y-2 text-left">
@@ -543,6 +589,53 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
         
         {isAIOpponent && <div className="absolute top-3 right-3 z-40 bg-purple-900/40 px-3 py-1 rounded border border-purple-500/50 backdrop-blur-sm"><span className="text-[9px] font-orbitron text-purple-200 uppercase tracking-widest animate-pulse">AI Core Active</span></div>}
       </div>
+
+      {/* Control Panels - Now disappearing when PLAYING status is active or when it's an AI opponent */}
+      {!isAIOpponent && game.status !== GameStatus.PLAYING && externalStatus === undefined && (
+        <div className="w-full flex flex-col gap-2 items-center animate-in fade-in slide-in-from-bottom-2 duration-300">
+          {/* Tryb Kulek Panel */}
+          <div className={`w-full max-w-[380px] md:max-w-[420px] p-4 rounded-xl border transition-all backdrop-blur-md ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-slate-100 border-slate-200 shadow-sm'}`}>
+            <h3 className={`font-orbitron text-[10px] uppercase tracking-widest mb-3 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Tryb Kulek Energii</h3>
+            <div className="grid grid-cols-3 gap-2">
+              {FOOD_MODES_INFO.map(mode => (
+                <button 
+                  key={mode.id} 
+                  title={mode.desc}
+                  onClick={() => updateSettings({ foodMode: mode.id })}
+                  className={`flex flex-col items-center justify-center p-2 rounded-lg border transition-all ${game.settings.foodMode === mode.id ? (isDark ? 'bg-purple-500/20 border-purple-500 text-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.2)]' : 'bg-purple-100 border-purple-400 text-purple-600') : (isDark ? 'bg-slate-800/40 border-slate-700 text-slate-500 hover:border-slate-600' : 'bg-white border-slate-200 text-slate-400 hover:bg-slate-50')}`}
+                >
+                  <i className={`fa-solid ${mode.icon} text-sm mb-1`}></i>
+                  <span className="text-[8px] font-orbitron uppercase tracking-tighter">{mode.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Prędkość Ruchu Panel */}
+          <div className={`w-full max-w-[380px] md:max-w-[420px] p-4 rounded-xl border transition-all backdrop-blur-md ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-slate-100 border-slate-200 shadow-sm'}`}>
+            <div className="flex justify-between items-center mb-3">
+              <h3 className={`font-orbitron text-[10px] uppercase tracking-widest ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Prędkość Ruchu</h3>
+              <span className="text-[10px] font-orbitron text-cyan-500 font-bold uppercase">{Math.round(1000 / game.speed)} PPS</span>
+            </div>
+            <div className="flex items-center gap-4">
+              <i className="fa-solid fa-turtle text-xs text-slate-500"></i>
+              <input 
+                type="range" 
+                min="50" 
+                max="300" 
+                step="10" 
+                value={350 - game.speed} 
+                onChange={(e) => {
+                  const val = parseInt(e.target.value);
+                  setGame(prev => ({ ...prev, speed: 350 - val }));
+                }} 
+                className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500" 
+              />
+              <i className="fa-solid fa-rabbit text-xs text-slate-500"></i>
+            </div>
+          </div>
+        </div>
+      )}
 
       {!isAIOpponent && game.status === GameStatus.PLAYING && controlMethod === 'buttons' && (
         <div className="lg:hidden mt-8 flex flex-col items-center gap-3">

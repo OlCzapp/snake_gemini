@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useRef, useEffect } from 'react';
 import SnakeGame, { SnakeGameHandle } from './components/SnakeGame';
-import { GameStatus, GameType, Difficulty, GameMode, GameSettings } from './types';
+import { GameStatus, GameType, Difficulty, GameMode, GameSettings, FoodMode } from './types';
 
 const App: React.FC = () => {
   const [gameType, setGameType] = useState<GameType>(GameType.SOLO);
@@ -15,6 +15,7 @@ const App: React.FC = () => {
 
   const [versusSettings, setVersusSettings] = useState<GameSettings>({
     foodCount: 10,
+    foodMode: FoodMode.NORMAL,
     snakeColor: '#22d3ee',
     mode: GameMode.NORMAL,
     gridSize: 20,
@@ -147,7 +148,7 @@ const App: React.FC = () => {
 
                <div>
                  <label className={`text-[10px] uppercase font-orbitron mb-3 block ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Liczba kulek: {versusSettings.foodCount}</label>
-                 <input type="range" min="10" max="20" step="1" value={versusSettings.foodCount} onChange={(e) => setVersusSettings(prev => ({ ...prev, foodCount: parseInt(e.target.value) }))} className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
+                 <input type="range" min="1" max="20" step="1" value={versusSettings.foodCount} onChange={(e) => setVersusSettings(prev => ({ ...prev, foodCount: parseInt(e.target.value) }))} className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
                </div>
 
                <button 

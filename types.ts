@@ -4,6 +4,10 @@ export type Point = {
   y: number;
 };
 
+export interface Food extends Point {
+  createdAt: number;
+}
+
 export enum Direction {
   UP = 'UP',
   DOWN = 'DOWN',
@@ -18,6 +22,12 @@ export enum GameStatus {
   GAME_OVER = 'GAME_OVER',
   WON = 'WON',
   STALLED = 'STALLED'
+}
+
+export enum FoodMode {
+  NORMAL = 'NORMAL',
+  MAGNET = 'MAGNET',
+  FADING = 'FADING'
 }
 
 export enum GameMode {
@@ -41,6 +51,7 @@ export enum Difficulty {
 
 export interface GameSettings {
   foodCount: number;
+  foodMode: FoodMode;
   snakeColor: string;
   mode: GameMode;
   gridSize: number;
@@ -50,7 +61,7 @@ export interface GameSettings {
 
 export interface GameState {
   snake: Point[];
-  foods: Point[];
+  foods: Food[];
   direction: Direction;
   status: GameStatus;
   score: number;
@@ -60,7 +71,6 @@ export interface GameState {
   isAutoPilot: boolean;
 }
 
-// Fixed: Added missing AICommentary interface to resolve import errors in other components
 export interface AICommentary {
   message: string;
   type: 'encouragement' | 'sarcasm' | 'advice' | 'congratulations';
