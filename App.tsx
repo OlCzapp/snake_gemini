@@ -6,17 +6,20 @@ import { GameStatus, GameType, Difficulty, GameMode, GameSettings } from './type
 const App: React.FC = () => {
   const [gameType, setGameType] = useState<GameType>(GameType.SOLO);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  const [controlMethod, setControlMethod] = useState<'buttons' | 'swipe'>('buttons');
   
   const [versusStatus, setVersusStatus] = useState<GameStatus>(GameStatus.IDLE);
   const [playerScore, setPlayerScore] = useState(0);
   const [aiScore, setAiScore] = useState(0);
+  const [versusWinner, setVersusWinner] = useState<'player' | 'ai' | 'draw' | null>(null);
 
   const [versusSettings, setVersusSettings] = useState<GameSettings>({
     foodCount: 1,
     snakeColor: '#22d3ee',
     mode: GameMode.NORMAL,
     gridSize: 20,
-    difficulty: Difficulty.NORMAL
+    difficulty: Difficulty.NORMAL,
+    targetScore: 20
   });
 
   const playerRef = useRef<SnakeGameHandle>(null);
@@ -29,14 +32,25 @@ const App: React.FC = () => {
       setPlayerScore(score);
     }
 
-    if (gameType === GameType.VERSUS) {
+    if (gameType === GameType.VERSUS && versusStatus === GameStatus.PLAYING) {
+      // Wygrana przez osiągnięcie celu
+      if (status === GameStatus.WON) {
+        setVersusStatus(GameStatus.GAME_OVER);
+        setVersusWinner(isAI ? 'ai' : 'player');
+        return;
+      }
+      
+      // Przegrana przez kolizję
       if (status === GameStatus.GAME_OVER) {
         setVersusStatus(GameStatus.GAME_OVER);
+        setVersusWinner(isAI ? 'player' : 'ai'); // Jeśli AI padło, wygrywa gracz i na odwrót
+        return;
       }
     }
-  }, [gameType]);
+  }, [gameType, versusStatus]);
 
   const startVersus = () => {
+    setVersusWinner(null);
     setVersusStatus(GameStatus.PLAYING);
     setPlayerScore(0);
     setAiScore(0);
@@ -50,6 +64,7 @@ const App: React.FC = () => {
     { id: GameMode.NORMAL, name: 'Normalny' },
     { id: GameMode.WRAP, name: 'Tunel' },
     { id: GameMode.STOP, name: 'Zderzak' },
+    { id: GameMode.GOD, name: 'Boski' },
   ];
 
   const isDark = theme === 'dark';
@@ -59,14 +74,13 @@ const App: React.FC = () => {
       
       <header className="w-full max-w-4xl mb-6 flex flex-col items-center">
         <div className="w-full flex justify-between items-center mb-4">
-          <div className="w-10 h-10" /> {/* Spacer */}
+          <div className="w-10 h-10" /> 
           <h1 className={`text-3xl md:text-5xl font-orbitron font-bold tracking-widest ${isDark ? 'text-cyan-400 neon-text' : 'text-cyan-600'}`}>
             NEON SNAKE AI
           </h1>
           <button 
             onClick={toggleTheme}
             className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${isDark ? 'bg-slate-800 text-yellow-400 hover:bg-slate-700' : 'bg-white text-slate-900 shadow-md hover:bg-slate-100'}`}
-            title={isDark ? "Przełącz na tryb jasny" : "Przełącz na tryb ciemny"}
           >
             <i className={`fa-solid ${isDark ? 'fa-sun' : 'fa-moon'}`}></i>
           </button>
@@ -90,12 +104,29 @@ const App: React.FC = () => {
 
       <div className="w-full max-w-7xl flex flex-col lg:flex-row gap-6 items-start justify-center">
         
-        {/* Settings for Versus Mode */}
         {gameType === GameType.VERSUS && versusStatus === GameStatus.IDLE && (
           <div className={`w-full max-w-md mx-auto p-8 rounded-2xl border transition-all backdrop-blur-xl mb-6 ${isDark ? 'bg-slate-900/80 border-purple-500/30' : 'bg-white border-purple-200 shadow-xl'}`}>
-            <h2 className={`text-xl font-orbitron text-center mb-8 uppercase tracking-widest ${isDark ? 'text-purple-400 neon-text' : 'text-purple-600'}`}>Ustawienia Pojedynku</h2>
+            <h2 className={`text-xl font-orbitron text-center mb-8 uppercase tracking-widest ${isDark ? 'text-purple-400 neon-text' : 'text-purple-600'}`}>Konfiguracja Walki</h2>
             
             <div className="space-y-6">
+               <div>
+                 <label className={`text-[10px] uppercase font-orbitron mb-3 block ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Cel Punktowy</label>
+                 <div className="grid grid-cols-2 gap-2">
+                   <button 
+                     onClick={() => setVersusSettings(prev => ({ ...prev, targetScore: 20 }))}
+                     className={`py-3 rounded border font-orbitron text-[11px] transition-all ${versusSettings.targetScore === 20 ? 'bg-cyan-500 border-cyan-400 text-slate-950 shadow-md' : isDark ? 'bg-slate-800 border-slate-700 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-500'}`}
+                   >
+                     LIMIT: 20
+                   </button>
+                   <button 
+                     onClick={() => setVersusSettings(prev => ({ ...prev, targetScore: 'max' }))}
+                     className={`py-3 rounded border font-orbitron text-[11px] transition-all ${versusSettings.targetScore === 'max' ? 'bg-purple-500 border-purple-400 text-white shadow-md' : isDark ? 'bg-slate-800 border-slate-700 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-500'}`}
+                   >
+                     MAKSIMUM
+                   </button>
+                 </div>
+               </div>
+
                <div>
                  <label className={`text-[10px] uppercase font-orbitron mb-3 block ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Poziom Trudności AI</label>
                  <div className="grid grid-cols-2 gap-2">
@@ -103,7 +134,7 @@ const App: React.FC = () => {
                      <button 
                        key={d} 
                        onClick={() => setVersusSettings(prev => ({ ...prev, difficulty: d }))}
-                       className={`py-2 rounded border font-orbitron text-[10px] transition-all ${versusSettings.difficulty === d ? 'bg-purple-500 border-purple-400 text-white' : isDark ? 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600' : 'bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200'}`}
+                       className={`py-2 rounded border font-orbitron text-[10px] transition-all ${versusSettings.difficulty === d ? 'bg-purple-500 border-purple-400 text-white shadow-md' : isDark ? 'bg-slate-800 border-slate-700 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-500'}`}
                      >
                        {d}
                      </button>
@@ -112,13 +143,13 @@ const App: React.FC = () => {
                </div>
 
                <div>
-                 <label className={`text-[10px] uppercase font-orbitron mb-3 block ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Tryb Gry</label>
-                 <div className="grid grid-cols-3 gap-2">
+                 <label className={`text-[10px] uppercase font-orbitron mb-3 block ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Tryb Gry (Dla obu graczy)</label>
+                 <div className="grid grid-cols-4 gap-1">
                    {MODES_INFO.map(m => (
                      <button 
                        key={m.id} 
                        onClick={() => setVersusSettings(prev => ({ ...prev, mode: m.id }))}
-                       className={`py-2 rounded border font-orbitron text-[10px] transition-all ${versusSettings.mode === m.id ? 'bg-cyan-500 border-cyan-400 text-white' : isDark ? 'bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600' : 'bg-slate-100 border-slate-200 text-slate-500 hover:bg-slate-200'}`}
+                       className={`py-2 rounded border font-orbitron text-[8px] transition-all ${versusSettings.mode === m.id ? 'bg-cyan-500 border-cyan-400 text-white' : isDark ? 'bg-slate-800 border-slate-700 text-slate-400' : 'bg-slate-100 border-slate-200 text-slate-500'}`}
                      >
                        {m.name}
                      </button>
@@ -126,14 +157,9 @@ const App: React.FC = () => {
                  </div>
                </div>
 
-               <div>
-                 <label className={`text-[10px] uppercase font-orbitron mb-3 block ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Rozmiar Siatki: {versusSettings.gridSize}</label>
-                 <input type="range" min="10" max="30" step="5" value={versusSettings.gridSize} onChange={(e) => setVersusSettings(prev => ({ ...prev, gridSize: parseInt(e.target.value) }))} className="w-full accent-purple-500" />
-               </div>
-
                <button 
                 onClick={startVersus} 
-                className="w-full py-4 bg-purple-600 hover:bg-purple-500 text-white font-orbitron font-bold rounded-xl mt-4 shadow-lg transition-all active:scale-95 shadow-purple-500/20 uppercase tracking-widest text-sm"
+                className="w-full py-5 bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 text-white font-orbitron font-bold rounded-xl mt-4 shadow-xl transition-all active:scale-95 uppercase tracking-widest text-sm"
                >
                  Inicjalizuj Walkę
                </button>
@@ -141,12 +167,13 @@ const App: React.FC = () => {
           </div>
         )}
 
-        {/* Game Layout */}
         <div className={`flex flex-col lg:flex-row gap-8 items-center justify-center w-full ${versusStatus === GameStatus.IDLE && gameType === GameType.VERSUS ? 'hidden' : ''}`}>
           
           <div className="flex flex-col gap-4">
              <SnakeGame 
                 ref={playerRef}
+                isDark={isDark}
+                controlMethod={controlMethod}
                 onStateChange={(s, sc) => handleGameStateChange(s, sc, false)} 
                 externalStatus={gameType === GameType.VERSUS ? versusStatus : undefined}
                 sharedSettings={gameType === GameType.VERSUS ? versusSettings : undefined}
@@ -155,34 +182,33 @@ const App: React.FC = () => {
 
           {gameType === GameType.VERSUS && (
             <>
-              {/* FIXED WIDTH SCOREBOARD PANEL */}
-              <div className={`flex flex-col items-center justify-center py-6 px-4 rounded-2xl border transition-all w-64 flex-shrink-0 ${isDark ? 'bg-slate-900/50 border-slate-800 shadow-inner' : 'bg-white border-slate-200 shadow-lg'}`}>
-                <span className={`text-[10px] font-orbitron mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>VERSUS</span>
+              <div className={`flex flex-col items-center justify-center py-6 px-6 rounded-2xl border transition-all w-64 flex-shrink-0 ${isDark ? 'bg-slate-900/50 border-slate-800 shadow-inner' : 'bg-white border-slate-200 shadow-lg'}`}>
+                <span className={`text-[10px] font-orbitron mb-2 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>WYNIK POJEDYNKU</span>
                 <div className={`text-5xl font-bold font-orbitron transition-all text-center tabular-nums ${playerScore > aiScore ? 'text-cyan-500' : aiScore > playerScore ? 'text-purple-500' : isDark ? 'text-white' : 'text-slate-800'}`}>
-                  {playerScore} - {aiScore}
+                  {playerScore}:{aiScore}
                 </div>
                 
-                <div className="h-24 flex items-center justify-center">
+                <div className="h-28 flex flex-col items-center justify-center mt-2">
                   {versusStatus === GameStatus.GAME_OVER ? (
                     <div className="text-center animate-in fade-in zoom-in duration-300">
-                      <p className={`font-orbitron text-xs uppercase mb-3 font-bold ${playerScore > aiScore ? 'text-cyan-500' : aiScore > playerScore ? 'text-purple-500' : 'text-slate-500'}`}>
-                        {playerScore > aiScore ? 'Zwycięstwo!' : aiScore > playerScore ? 'AI wygrało' : 'Remis'}
+                      <p className={`font-orbitron text-sm uppercase mb-3 font-bold ${versusWinner === 'player' ? 'text-cyan-400' : versusWinner === 'ai' ? 'text-purple-400' : 'text-slate-500'}`}>
+                        {versusWinner === 'player' ? 'GRACZ WYGRYWA!' : versusWinner === 'ai' ? 'AI WYGRYWA!' : 'REMIS'}
                       </p>
                       <button 
                         onClick={() => setVersusStatus(GameStatus.IDLE)} 
-                        className={`text-[9px] font-orbitron uppercase tracking-widest px-4 py-2 rounded-lg transition-all ${isDark ? 'bg-slate-700 hover:bg-slate-600 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'}`}
+                        className={`text-[10px] font-orbitron uppercase tracking-widest px-6 py-2.5 rounded-xl transition-all ${isDark ? 'bg-slate-700 hover:bg-slate-600 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'}`}
                       >
-                          Resetuj
+                          Konfiguruj Ponownie
                       </button>
                     </div>
                   ) : (
-                    <div className="flex flex-col items-center gap-2">
-                       <div className="flex gap-1">
-                          <div className={`w-1.5 h-1.5 rounded-full animate-bounce bg-cyan-500`} style={{ animationDelay: '0ms' }}></div>
-                          <div className={`w-1.5 h-1.5 rounded-full animate-bounce bg-purple-500`} style={{ animationDelay: '150ms' }}></div>
-                          <div className={`w-1.5 h-1.5 rounded-full animate-bounce bg-cyan-500`} style={{ animationDelay: '300ms' }}></div>
+                    <div className="flex flex-col items-center gap-3">
+                       <span className="text-[9px] font-orbitron text-slate-500 mb-1">CEL: {versusSettings.targetScore === 'max' ? 'MAKS' : versusSettings.targetScore}</span>
+                       <div className="flex gap-1.5">
+                          <div className={`w-2 h-2 rounded-full animate-bounce bg-cyan-500`} style={{ animationDelay: '0ms' }}></div>
+                          <div className={`w-2 h-2 rounded-full animate-bounce bg-purple-500`} style={{ animationDelay: '150ms' }}></div>
+                          <div className={`w-2 h-2 rounded-full animate-bounce bg-cyan-500`} style={{ animationDelay: '300ms' }}></div>
                        </div>
-                       <span className="text-[8px] font-orbitron text-slate-500 animate-pulse">SESJA W TOKU</span>
                     </div>
                   )}
                 </div>
@@ -191,6 +217,7 @@ const App: React.FC = () => {
               <div className="flex flex-col gap-4">
                 <SnakeGame 
                   ref={aiRef}
+                  isDark={isDark}
                   isAIOpponent={true}
                   onStateChange={(s, sc) => handleGameStateChange(s, sc, true)}
                   externalStatus={versusStatus}
@@ -202,10 +229,17 @@ const App: React.FC = () => {
         </div>
       </div>
 
+      <button 
+        onClick={() => setControlMethod(prev => prev === 'buttons' ? 'swipe' : 'buttons')}
+        className={`fixed bottom-4 right-4 z-50 w-12 h-12 rounded-full border shadow-2xl flex items-center justify-center transition-all active:scale-90 lg:hidden ${isDark ? 'bg-slate-900 border-slate-700 text-cyan-400' : 'bg-white border-slate-200 text-cyan-600'}`}
+      >
+        <i className={`fa-solid ${controlMethod === 'buttons' ? 'fa-gamepad' : 'fa-hand-pointer'}`}></i>
+      </button>
+
       <footer className={`mt-12 text-[10px] text-center uppercase tracking-widest max-w-lg transition-colors ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>
-        Tryb rywalizacji: Walcz o punkty energii z Neuronową Siecią. Trudność Hardcore testuje limity procesorów.
+        Walka do celu: Przegrywa ten, kto dotknie ściany lub siebie. Wygrywa ten, kto pierwszy osiągnie wyznaczony cel.
         <br />
-        &copy; {new Date().getFullYear()} Neon Labs • Built with Gemini 3
+        &copy; {new Date().getFullYear()} Neon Labs • Gemini Engine
       </footer>
     </div>
   );

@@ -23,6 +23,7 @@ const MODES = [
   { id: GameMode.NORMAL, name: 'Normalny', desc: 'Ściany zabijają' },
   { id: GameMode.WRAP, name: 'Tunel', desc: 'Przenikanie ścian' },
   { id: GameMode.STOP, name: 'Zderzak', desc: 'Zatrzymuje na krawędzi' },
+  { id: GameMode.GOD, name: 'Boski', desc: 'Nieśmiertelność i blokada na ogonie' },
 ];
 
 const DIFFICULTIES = [
@@ -37,6 +38,8 @@ interface SnakeGameProps {
   isAIOpponent?: boolean;
   externalStatus?: GameStatus;
   sharedSettings?: GameSettings;
+  isDark?: boolean;
+  controlMethod?: 'buttons' | 'swipe';
 }
 
 export interface SnakeGameHandle {
@@ -47,7 +50,7 @@ export interface SnakeGameHandle {
   getScore: () => number;
 }
 
-const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, isAIOpponent = false, externalStatus, sharedSettings }, ref) => {
+const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, isAIOpponent = false, externalStatus, sharedSettings, isDark = true, controlMethod = 'buttons' }, ref) => {
   const [game, setGame] = useState<GameState>({
     snake: INITIAL_SNAKE,
     foods: [],
@@ -62,14 +65,16 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
       snakeColor: isAIOpponent ? COLORS[2].value : COLORS[0].value,
       mode: GameMode.NORMAL,
       gridSize: 20,
-      difficulty: Difficulty.NORMAL
+      difficulty: Difficulty.NORMAL,
+      targetScore: 'max'
     }
   });
 
   const gameLoopRef = useRef<number | null>(null);
   const directionRef = useRef<Direction>(INITIAL_DIRECTION);
+  const stallTimerRef = useRef<number | null>(null);
+  const touchStartRef = useRef<Point | null>(null);
 
-  // Sync with shared settings if provided (for Versus mode)
   useEffect(() => {
     if (sharedSettings) {
       setGame(prev => ({ 
@@ -80,7 +85,6 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
     }
   }, [sharedSettings, isAIOpponent]);
 
-  // Sync status for synchronized start
   useEffect(() => {
     if (externalStatus !== undefined && externalStatus !== game.status) {
       if (externalStatus === GameStatus.PLAYING && game.status === GameStatus.IDLE) {
@@ -93,7 +97,10 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
 
   const generateFood = useCallback((snake: Point[], count: number, gridSize: number, existingFoods: Point[] = []): Point[] => {
     const newFoods: Point[] = [...existingFoods];
-    while (newFoods.length < count) {
+    const maxPossibleFoods = (gridSize * gridSize) - snake.length;
+    const targetCount = Math.min(count, maxPossibleFoods);
+
+    while (newFoods.length < targetCount) {
       const food = {
         x: Math.floor(Math.random() * gridSize),
         y: Math.floor(Math.random() * gridSize),
@@ -122,6 +129,10 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
       isAutoPilot: isAIOpponent
     }));
     onStateChange(GameStatus.PLAYING, 0);
+    if (stallTimerRef.current) {
+      clearTimeout(stallTimerRef.current);
+      stallTimerRef.current = null;
+    }
   };
 
   useImperativeHandle(ref, () => ({
@@ -144,6 +155,60 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
         isAutoPilot: isAIOpponent
       };
     });
+  };
+
+  const gameWon = () => {
+    setGame(prev => {
+      const newHighScore = Math.max(prev.score, prev.highScore);
+      if (!isAIOpponent) localStorage.setItem('highScore', newHighScore.toString());
+      onStateChange(GameStatus.WON, prev.score);
+      return {
+        ...prev,
+        status: GameStatus.WON,
+        highScore: newHighScore
+      };
+    });
+  };
+
+  const checkStall = (gameState: GameState) => {
+    const head = gameState.snake[0];
+    const gridSize = gameState.settings.gridSize;
+    const snake = gameState.snake;
+    
+    const possibleMoves = [
+      { x: head.x, y: head.y - 1 },
+      { x: head.x, y: head.y + 1 },
+      { x: head.x - 1, y: head.y },
+      { x: head.x + 1, y: head.y },
+    ];
+
+    const isTrapped = possibleMoves.every(p => {
+      let np = { ...p };
+      if (gameState.settings.mode === GameMode.WRAP) {
+        np.x = (np.x + gridSize) % gridSize;
+        np.y = (np.y + gridSize) % gridSize;
+      }
+      const outOfBounds = np.x < 0 || np.x >= gridSize || np.y < 0 || np.y >= gridSize;
+      const collision = snake.some(s => s.x === np.x && s.y === np.y);
+      
+      if (gameState.settings.mode === GameMode.GOD) return false;
+      if (gameState.settings.mode === GameMode.STOP && outOfBounds) return true;
+      if (gameState.settings.mode === GameMode.NORMAL && outOfBounds) return true;
+      return collision;
+    });
+
+    if (isTrapped && gameState.status === GameStatus.PLAYING) {
+      if (!stallTimerRef.current) {
+        stallTimerRef.current = window.setTimeout(() => {
+          setGame(prev => ({ ...prev, status: GameStatus.STALLED }));
+        }, 5000);
+      }
+    } else {
+      if (stallTimerRef.current) {
+        clearTimeout(stallTimerRef.current);
+        stallTimerRef.current = null;
+      }
+    }
   };
 
   const getAIDirection = (currentGameState: GameState): Direction => {
@@ -236,11 +301,13 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
   const moveSnake = useCallback(() => {
     setGame(prev => {
       if (prev.status !== GameStatus.PLAYING) return prev;
+      
       let currentDir = directionRef.current;
       if (prev.isAutoPilot) {
         currentDir = getAIDirection(prev);
         directionRef.current = currentDir;
       }
+
       const newHead = { ...prev.snake[0] };
       switch (currentDir) {
         case Direction.UP: newHead.y -= 1; break;
@@ -248,25 +315,50 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
         case Direction.LEFT: newHead.x -= 1; break;
         case Direction.RIGHT: newHead.x += 1; break;
       }
+
       const gridSize = prev.settings.gridSize;
+      const targetGoal = prev.settings.targetScore === 'max' 
+        ? (gridSize * gridSize) - INITIAL_SNAKE.length 
+        : prev.settings.targetScore;
+      
       const isOutOfBounds = newHead.x < 0 || newHead.x >= gridSize || newHead.y < 0 || newHead.y >= gridSize;
-      if (isOutOfBounds) {
-        if (prev.settings.mode === GameMode.NORMAL) { gameOver(); return prev; } 
-        else if (prev.settings.mode === GameMode.WRAP) {
-          newHead.x = (newHead.x + gridSize) % gridSize;
-          newHead.y = (newHead.y + gridSize) % gridSize;
-        } else if (prev.settings.mode === GameMode.STOP) { return prev; }
+      
+      if (prev.settings.mode === GameMode.GOD) {
+        let np = { ...newHead };
+        if (isOutOfBounds) {
+          np.x = (np.x + gridSize) % gridSize;
+          np.y = (np.y + gridSize) % gridSize;
+        }
+        const selfCollision = prev.snake.some(segment => segment.x === np.x && segment.y === np.y);
+        if (selfCollision) return prev;
+        newHead.x = np.x;
+        newHead.y = np.y;
+      } else {
+        const selfCollision = prev.snake.some(segment => segment.x === newHead.x && segment.y === newHead.y);
+        if (isOutOfBounds) {
+          if (prev.settings.mode === GameMode.NORMAL) { gameOver(); return prev; } 
+          else if (prev.settings.mode === GameMode.WRAP) {
+            newHead.x = (newHead.x + gridSize) % gridSize;
+            newHead.y = (newHead.y + gridSize) % gridSize;
+          } else if (prev.settings.mode === GameMode.STOP) { return prev; }
+        }
+        if (selfCollision) {
+          gameOver();
+          return prev;
+        }
       }
-      if (prev.snake.some(segment => segment.x === newHead.x && segment.y === newHead.y)) {
-        gameOver();
-        return prev;
-      }
+
       const newSnake = [newHead, ...prev.snake];
       let newScore = prev.score;
       let newSpeed = prev.speed;
       const foodIndex = prev.foods.findIndex(f => f.x === newHead.x && f.y === newHead.y);
+
       if (foodIndex !== -1) {
         newScore += 1;
+        if (newScore >= targetGoal) {
+           gameWon();
+           return { ...prev, score: newScore, snake: newSnake, status: GameStatus.WON };
+        }
         const remainingFoods = prev.foods.filter((_, i) => i !== foodIndex);
         const newFoods = generateFood(newSnake, prev.settings.foodCount, gridSize, remainingFoods);
         newSpeed = Math.max(MIN_SPEED, prev.speed - SPEED_INCREMENT);
@@ -282,26 +374,23 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
   useEffect(() => {
     if (game.status === GameStatus.PLAYING) {
       gameLoopRef.current = window.setInterval(moveSnake, game.speed);
+      checkStall(game);
     } else {
       if (gameLoopRef.current) clearInterval(gameLoopRef.current);
     }
     return () => { if (gameLoopRef.current) clearInterval(gameLoopRef.current); };
-  }, [game.status, game.speed, moveSnake]);
+  }, [game.status, game.speed, moveSnake, game.snake]);
 
   useEffect(() => {
     if (isAIOpponent) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === ' ') {
         e.preventDefault();
-        if (game.status === GameStatus.IDLE || game.status === GameStatus.GAME_OVER) {
+        if (game.status === GameStatus.IDLE || game.status === GameStatus.GAME_OVER || game.status === GameStatus.WON) {
           resetGame();
         } else if (game.status === GameStatus.PLAYING) {
           setGame(prev => ({ ...prev, isAutoPilot: !prev.isAutoPilot }));
         }
-        return;
-      }
-      if (e.key.toLowerCase() === 'p' && game.status !== GameStatus.IDLE && game.status !== GameStatus.GAME_OVER) {
-        setGame(prev => ({ ...prev, status: prev.status === GameStatus.PLAYING ? GameStatus.PAUSED : GameStatus.PLAYING }));
         return;
       }
       const newDir = KEY_MAP[e.key];
@@ -312,7 +401,7 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [game.status, game.settings, isAIOpponent]);
+  }, [game.status, isAIOpponent]);
 
   const updateSettings = (updates: Partial<GameSettings>) => {
     setGame(prev => {
@@ -322,26 +411,72 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
     });
   };
 
+  const handleControlClick = (dir: Direction) => {
+    if (game.status !== GameStatus.PLAYING) return;
+    if (OPPOSITE_DIRECTIONS[dir] !== directionRef.current) {
+      setGame(prev => ({ ...prev, isAutoPilot: false }));
+      directionRef.current = dir;
+    }
+  };
+
+  const handleTouchStart = (e: React.TouchEvent) => {
+    if (isAIOpponent || controlMethod !== 'swipe' || game.status !== GameStatus.PLAYING) return;
+    touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+  };
+
+  const handleTouchEnd = (e: React.TouchEvent) => {
+    if (!touchStartRef.current || controlMethod !== 'swipe') return;
+    const touchEnd = { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
+    const dx = touchEnd.x - touchStartRef.current.x;
+    const dy = touchEnd.y - touchStartRef.current.y;
+    const minDistance = 30;
+
+    if (Math.abs(dx) > Math.abs(dy)) {
+      if (Math.abs(dx) > minDistance) {
+        handleControlClick(dx > 0 ? Direction.RIGHT : Direction.LEFT);
+      }
+    } else {
+      if (Math.abs(dy) > minDistance) {
+        handleControlClick(dy > 0 ? Direction.DOWN : Direction.UP);
+      }
+    }
+    touchStartRef.current = null;
+  };
+
+  const currentModeName = MODES.find(m => m.id === game.settings.mode)?.name || 'Nieznany';
+
   return (
-    <div className={`flex flex-col items-center gap-4 transition-opacity ${isAIOpponent ? 'opacity-90' : 'opacity-100'}`}>
-      <div className="flex justify-between w-full max-w-[400px] font-orbitron text-xs tracking-widest transition-colors">
+    <div className={`flex flex-col items-center gap-2 transition-opacity ${isAIOpponent ? 'opacity-90' : 'opacity-100'}`}>
+      <div className="flex justify-between w-full max-w-[380px] md:max-w-[420px] font-orbitron text-xs tracking-widest transition-colors mb-2">
         <div className="flex flex-col">
-          <span className="text-slate-500 mb-1 uppercase text-[8px]">{isAIOpponent ? 'AI SCORE' : 'TWÓJ WYNIK'}</span>
-          <span className="text-2xl font-bold">{game.score.toString().padStart(3, '0')}</span>
+          <span className={`${isDark ? 'text-slate-500' : 'text-slate-400'} mb-1 uppercase text-[8px] md:text-[10px]`}>{isAIOpponent ? 'AI SCORE' : 'TWÓJ WYNIK'}</span>
+          <span className={`text-2xl md:text-3xl font-bold ${!isDark && 'text-slate-800'}`}>{game.score.toString().padStart(3, '0')}</span>
         </div>
         {!isAIOpponent && (
           <div className="flex flex-col items-end">
-            <span className="text-slate-500 mb-1 uppercase text-[8px]">REKORD</span>
-            <span className="text-2xl font-bold text-purple-500">{game.highScore.toString().padStart(3, '0')}</span>
+            <span className={`${isDark ? 'text-slate-500' : 'text-slate-400'} mb-1 uppercase text-[8px] md:text-[10px]`}>REKORD</span>
+            <span className="text-2xl md:text-3xl font-bold text-purple-500">{game.highScore.toString().padStart(3, '0')}</span>
           </div>
         )}
       </div>
 
+      <div className={`w-full max-w-[380px] md:max-w-[420px] px-3 md:px-5 py-2 rounded-t-lg border-x border-t flex justify-between items-center font-orbitron text-[9px] md:text-[11px] uppercase tracking-widest ${isDark ? 'bg-slate-900/80 border-slate-800 text-slate-500' : 'bg-slate-100 border-slate-200 text-slate-400'}`}>
+        <div className="flex items-center gap-4">
+           <span><span className={isDark ? "text-cyan-500" : "text-cyan-600"}>TRYB:</span> {currentModeName}</span>
+           <span><span className={isDark ? "text-cyan-500" : "text-cyan-600"}>SIATKA:</span> {game.settings.gridSize}x{game.settings.gridSize}</span>
+        </div>
+        <div>
+           <span><span className={isDark ? "text-purple-500" : "text-purple-600"}>ENERGIA:</span> {game.settings.foodCount}</span>
+        </div>
+      </div>
+
       <div 
-        className={`relative bg-slate-900 border-4 ${isAIOpponent ? 'border-purple-800' : 'border-slate-800'} rounded-lg overflow-hidden ${isAIOpponent ? 'shadow-lg shadow-purple-500/20' : 'neon-glow'} shadow-2xl transition-all`}
+        className={`relative bg-slate-900 border-x border-b border-t-0 ${isAIOpponent ? 'border-purple-800' : (isDark ? 'border-slate-800' : 'border-slate-300')} rounded-b-lg overflow-hidden ${isAIOpponent ? 'shadow-lg shadow-purple-500/20' : 'neon-glow'} shadow-2xl transition-all touch-none`}
+        onTouchStart={handleTouchStart}
+        onTouchEnd={handleTouchEnd}
         style={{ 
-          width: 'min(90vw, 380px)', 
-          height: 'min(90vw, 380px)',
+          width: 'min(90vw, 420px)', 
+          height: 'min(90vw, 420px)',
           display: 'grid',
           gridTemplateColumns: `repeat(${game.settings.gridSize}, 1fr)`,
           gridTemplateRows: `repeat(${game.settings.gridSize}, 1fr)`
@@ -374,67 +509,127 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
         ))}
 
         {!isAIOpponent && game.status !== GameStatus.PLAYING && externalStatus === undefined && (
-          <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-sm z-30 flex flex-col items-center justify-center text-center p-8 overflow-y-auto custom-scrollbar">
+          <div className={`absolute inset-0 ${isDark ? 'bg-slate-950/90' : 'bg-white/95'} backdrop-blur-md z-30 flex flex-col items-center justify-center text-center p-8 md:p-12 overflow-y-auto custom-scrollbar`}>
+            
             {game.status === GameStatus.IDLE && (
-              <div className="w-full space-y-4">
-                <h2 className="text-2xl font-orbitron text-cyan-400 neon-text uppercase tracking-widest">Konfiguracja</h2>
+              <div className="w-full space-y-6">
+                <h2 className={`text-2xl md:text-4xl font-orbitron ${isDark ? 'text-cyan-400 neon-text' : 'text-cyan-600'} uppercase tracking-widest mb-6`}>Konfiguracja</h2>
                 
-                <div className="space-y-1 text-left">
-                  <label className="text-[10px] text-slate-500 uppercase font-orbitron">Rozmiar mapy: {game.settings.gridSize}x{game.settings.gridSize}</label>
-                  <input type="range" min="10" max="30" step="5" value={game.settings.gridSize} onChange={(e) => updateSettings({ gridSize: parseInt(e.target.value) })} className="w-full accent-cyan-500" />
+                <div className="space-y-2 text-left">
+                  <label className={`text-[10px] md:text-[12px] ${isDark ? 'text-slate-500' : 'text-slate-400'} uppercase font-orbitron flex justify-between`}>
+                    Rozmiar mapy <span>{game.settings.gridSize}x{game.settings.gridSize}</span>
+                  </label>
+                  <input type="range" min="10" max="30" step="5" value={game.settings.gridSize} onChange={(e) => updateSettings({ gridSize: parseInt(e.target.value) })} className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
                 </div>
 
-                <div className="space-y-1 text-left">
-                  <label className="text-[10px] text-slate-500 uppercase font-orbitron">Trudność AI</label>
-                  <div className="flex gap-1">
+                <div className="space-y-2 text-left">
+                  <label className={`text-[10px] md:text-[12px] ${isDark ? 'text-slate-500' : 'text-slate-400'} uppercase font-orbitron flex justify-between`}>
+                    Liczba kulek <span>{game.settings.foodCount}</span>
+                  </label>
+                  <input type="range" min="1" max="10" step="1" value={game.settings.foodCount} onChange={(e) => updateSettings({ foodCount: parseInt(e.target.value) })} className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-purple-500" />
+                </div>
+
+                <div className="space-y-2 text-left">
+                  <label className={`text-[10px] md:text-[12px] ${isDark ? 'text-slate-500' : 'text-slate-400'} uppercase font-orbitron mb-2`}>Trudność AI</label>
+                  <div className="flex gap-2">
                     {DIFFICULTIES.map(diff => (
-                      <button key={diff.id} onClick={() => updateSettings({ difficulty: diff.id })} className={`flex-1 py-1 rounded border text-[8px] font-bold font-orbitron transition-all ${game.settings.difficulty === diff.id ? 'bg-cyan-500/20 border-cyan-500 text-cyan-300' : 'bg-slate-800/50 border-slate-700 text-slate-500'}`}>
+                      <button key={diff.id} onClick={() => updateSettings({ difficulty: diff.id })} className={`flex-1 py-2 md:py-3 rounded border text-[8px] md:text-[10px] font-bold font-orbitron transition-all ${game.settings.difficulty === diff.id ? 'bg-cyan-500/20 border-cyan-500 text-cyan-300' : (isDark ? 'bg-slate-800/50 border-slate-700 text-slate-500 hover:border-slate-500' : 'bg-slate-100 border-slate-200 text-slate-400 hover:bg-slate-200')}`}>
                         {diff.name}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                <div className="space-y-1 text-left">
-                  <label className="text-[10px] text-slate-500 uppercase font-orbitron">Kolor węża</label>
-                  <div className="flex justify-between gap-1">
+                <div className="space-y-2 text-left">
+                  <label className={`text-[10px] md:text-[12px] ${isDark ? 'text-slate-500' : 'text-slate-400'} uppercase font-orbitron mb-2`}>Kolor węża</label>
+                  <div className="flex justify-between gap-2">
                     {COLORS.map(c => (
-                      <button key={c.value} onClick={() => updateSettings({ snakeColor: c.value })} className={`w-7 h-7 rounded-full border-2 transition-all ${game.settings.snakeColor === c.value ? 'border-white scale-110' : 'border-transparent opacity-50'}`} style={{ backgroundColor: c.value }} />
+                      <button key={c.value} onClick={() => updateSettings({ snakeColor: c.value })} className={`w-10 h-10 md:w-12 md:h-12 rounded-full border-2 transition-all ${game.settings.snakeColor === c.value ? (isDark ? 'border-white ring-2 ring-cyan-500' : 'border-slate-800 ring-2 ring-cyan-600') + ' scale-110' : 'border-transparent opacity-60 hover:opacity-100'}`} style={{ backgroundColor: c.value }} />
                     ))}
                   </div>
                 </div>
 
-                <div className="space-y-1 text-left">
-                  <label className="text-[10px] text-slate-500 uppercase font-orbitron">Tryb gry</label>
-                  <div className="grid grid-cols-3 gap-1">
+                <div className="space-y-2 text-left">
+                  <label className={`text-[10px] md:text-[12px] ${isDark ? 'text-slate-500' : 'text-slate-400'} uppercase font-orbitron mb-2`}>Tryb gry</label>
+                  <div className="grid grid-cols-2 gap-2">
                     {MODES.map(mode => (
-                      <button key={mode.id} onClick={() => updateSettings({ mode: mode.id })} className={`p-1 rounded border text-[8px] font-bold font-orbitron transition-all ${game.settings.mode === mode.id ? 'bg-cyan-500/20 border-cyan-500 text-cyan-100' : 'bg-slate-800/50 border-slate-700 text-slate-400'}`}>
+                      <button key={mode.id} title={mode.desc} onClick={() => updateSettings({ mode: mode.id })} className={`p-2 md:p-3 rounded border text-[8px] md:text-[10px] font-bold font-orbitron transition-all ${game.settings.mode === mode.id ? 'bg-cyan-500/20 border-cyan-500 text-cyan-100 shadow-[0_0_10px_rgba(34,211,238,0.2)]' : (isDark ? 'bg-slate-800/50 border-slate-700 text-slate-400 hover:border-slate-500' : 'bg-slate-100 border-slate-200 text-slate-400 hover:bg-slate-200')}`}>
                         {mode.name}
                       </button>
                     ))}
                   </div>
                 </div>
 
-                <button onClick={resetGame} className="w-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-orbitron font-bold py-3 rounded-xl transition-all active:scale-95 shadow-lg shadow-cyan-500/20 uppercase text-xs tracking-widest">Inicjalizuj System</button>
+                <button onClick={resetGame} className="w-full bg-cyan-500 hover:bg-cyan-400 text-slate-950 font-orbitron font-bold py-4 md:py-5 rounded-2xl transition-all active:scale-95 shadow-[0_10px_20px_rgba(34,211,238,0.3)] uppercase text-xs md:text-sm tracking-widest mt-4">Inicjalizuj System</button>
               </div>
             )}
 
             {game.status === GameStatus.GAME_OVER && (
-              <>
-                <h2 className="text-4xl font-orbitron text-red-500 mb-4 neon-text uppercase tracking-widest">Awaria</h2>
-                <p className="text-slate-400 mb-8 font-orbitron text-xs uppercase tracking-tighter">Uzyskany Wynik: {game.score}</p>
-                <button onClick={() => setGame(prev => ({ ...prev, status: GameStatus.IDLE }))} className="bg-red-500 hover:bg-red-400 text-slate-950 font-orbitron font-bold py-3 px-10 rounded-full transition-all uppercase text-xs tracking-widest">Główne Menu</button>
-              </>
+              <div className="animate-in fade-in zoom-in duration-300">
+                <h2 className="text-5xl font-orbitron text-red-500 mb-6 neon-text uppercase tracking-widest">Awaria</h2>
+                <p className={`${isDark ? 'text-slate-400' : 'text-slate-600'} mb-10 font-orbitron text-sm uppercase tracking-wider`}>Wynik końcowy: {game.score}</p>
+                <button onClick={() => setGame(prev => ({ ...prev, status: GameStatus.IDLE }))} className="bg-red-500 hover:bg-red-400 text-slate-950 font-orbitron font-bold py-4 px-12 rounded-full transition-all uppercase text-xs md:text-sm tracking-widest shadow-lg shadow-red-500/30">Powrót do Menu</button>
+              </div>
+            )}
+
+            {game.status === GameStatus.WON && (
+              <div className="animate-in fade-in zoom-in duration-500">
+                <h2 className="text-5xl font-orbitron text-emerald-500 mb-6 neon-text uppercase tracking-widest">Cel Osiągnięty</h2>
+                <p className={`${isDark ? 'text-slate-400' : 'text-slate-600'} mb-10 font-orbitron text-sm uppercase tracking-wider`}>Osiągnięto wymagany limit: {game.score}</p>
+                <div className="flex flex-col gap-4">
+                   <button onClick={resetGame} className="bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-orbitron font-bold py-4 px-12 rounded-full transition-all uppercase text-xs md:text-sm tracking-widest shadow-lg shadow-emerald-500/30">Zagraj Ponownie</button>
+                   <button onClick={() => setGame(prev => ({ ...prev, status: GameStatus.IDLE }))} className="text-slate-500 hover:text-slate-300 font-orbitron text-[11px] uppercase transition-colors">Główne Menu</button>
+                </div>
+              </div>
+            )}
+
+            {game.status === GameStatus.STALLED && (
+              <div className="animate-in fade-in zoom-in duration-300">
+                <h2 className="text-3xl font-orbitron text-yellow-500 mb-6 uppercase tracking-widest">System Zablokowany</h2>
+                <p className={`${isDark ? 'text-slate-400' : 'text-slate-600'} mb-10 font-orbitron text-xs uppercase tracking-tighter max-w-[200px] mx-auto`}>Wykryto brak możliwości manewru przez 5 sekund.</p>
+                <div className="flex gap-4 justify-center">
+                   <button onClick={() => setGame(prev => ({ ...prev, status: GameStatus.PLAYING }))} className="bg-slate-700 hover:bg-slate-600 text-white font-orbitron font-bold py-4 px-8 rounded-xl transition-all uppercase text-[10px] md:text-[12px]">Zostań</button>
+                   <button onClick={resetGame} className="bg-yellow-600 hover:bg-yellow-500 text-white font-orbitron font-bold py-4 px-8 rounded-xl transition-all uppercase text-[10px] md:text-[12px]">Resetuj</button>
+                </div>
+              </div>
             )}
           </div>
         )}
         
         {isAIOpponent && (
-          <div className="absolute top-2 right-2 z-40 bg-purple-900/40 px-3 py-1 rounded border border-purple-500/50 backdrop-blur-sm">
-             <span className="text-[8px] font-orbitron text-purple-200 uppercase tracking-widest animate-pulse">AI Core Active</span>
+          <div className="absolute top-3 right-3 z-40 bg-purple-900/40 px-3 py-1 rounded border border-purple-500/50 backdrop-blur-sm">
+             <span className="text-[9px] font-orbitron text-purple-200 uppercase tracking-widest animate-pulse">AI Core Active</span>
           </div>
         )}
+
+        {game.settings.mode === GameMode.GOD && game.status === GameStatus.PLAYING && !isAIOpponent && (
+          <button 
+            onClick={() => setGame(prev => ({ ...prev, status: GameStatus.IDLE }))}
+            className="absolute bottom-3 left-3 z-40 bg-slate-800/70 hover:bg-slate-700 text-white px-3 py-1.5 rounded-lg border border-slate-600 text-[9px] font-orbitron uppercase tracking-widest transition-all"
+          >
+            Menu
+          </button>
+        )}
       </div>
+
+      {!isAIOpponent && game.status === GameStatus.PLAYING && controlMethod === 'buttons' && (
+        <div className="lg:hidden mt-8 flex flex-col items-center gap-3">
+           <button onClick={() => handleControlClick(Direction.UP)} className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all active:scale-90 ${isDark ? 'bg-slate-800 text-cyan-400 border border-slate-700 shadow-lg' : 'bg-slate-200 text-cyan-600 border border-slate-300 shadow-md'}`}>
+             <i className="fa-solid fa-chevron-up text-2xl"></i>
+           </button>
+           <div className="flex gap-16">
+              <button onClick={() => handleControlClick(Direction.LEFT)} className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all active:scale-90 ${isDark ? 'bg-slate-800 text-cyan-400 border border-slate-700 shadow-lg' : 'bg-slate-200 text-cyan-600 border border-slate-300 shadow-md'}`}>
+                <i className="fa-solid fa-chevron-left text-2xl"></i>
+              </button>
+              <button onClick={() => handleControlClick(Direction.RIGHT)} className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all active:scale-90 ${isDark ? 'bg-slate-800 text-cyan-400 border border-slate-700 shadow-lg' : 'bg-slate-200 text-cyan-600 border border-slate-300 shadow-md'}`}>
+                <i className="fa-solid fa-chevron-right text-2xl"></i>
+              </button>
+           </div>
+           <button onClick={() => handleControlClick(Direction.DOWN)} className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all active:scale-90 ${isDark ? 'bg-slate-800 text-cyan-400 border border-slate-700 shadow-lg' : 'bg-slate-200 text-cyan-600 border border-slate-300 shadow-md'}`}>
+             <i className="fa-solid fa-chevron-down text-2xl"></i>
+           </button>
+        </div>
+      )}
     </div>
   );
 });

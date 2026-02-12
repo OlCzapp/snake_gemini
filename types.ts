@@ -16,12 +16,15 @@ export enum GameStatus {
   PLAYING = 'PLAYING',
   PAUSED = 'PAUSED',
   GAME_OVER = 'GAME_OVER',
+  WON = 'WON',
+  STALLED = 'STALLED'
 }
 
 export enum GameMode {
   NORMAL = 'NORMAL',
   WRAP = 'WRAP',
   STOP = 'STOP',
+  GOD = 'GOD'
 }
 
 export enum GameType {
@@ -42,6 +45,7 @@ export interface GameSettings {
   mode: GameMode;
   gridSize: number;
   difficulty: Difficulty;
+  targetScore: number | 'max';
 }
 
 export interface GameState {
@@ -56,7 +60,6 @@ export interface GameState {
   isAutoPilot: boolean;
 }
 
-// Fixed missing AICommentary interface definition
 export interface AICommentary {
   message: string;
   type: 'encouragement' | 'sarcasm' | 'advice' | 'congratulations';
