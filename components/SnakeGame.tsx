@@ -547,9 +547,9 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
             style={{ 
               gridColumn: segment.x + 1, 
               gridRow: segment.y + 1, 
-              backgroundColor: i === 0 && isGracePeriod ? '#ef4444' : game.settings.snakeColor, 
+              backgroundColor: i === 0 && isGracePeriod ? '#ed4747' : game.settings.snakeColor, 
               opacity: i === 0 ? 1 : 0.7, 
-              boxShadow: i === 0 ? `0 0 10px ${isGracePeriod ? '#ef4444' : game.settings.snakeColor}` : 'none' 
+              boxShadow: i === 0 ? `0 0 10px ${isGracePeriod ? '#ed4747' : game.settings.snakeColor}` : 'none' 
             }} 
           />
         ))}
@@ -565,7 +565,7 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
         })}
 
         {isGracePeriod && !isAIOpponent && (
-          <div className="absolute inset-0 bg-red-950/20 backdrop-blur-[0.5px] z-20 flex flex-col items-center justify-center text-center p-4">
+          <div className="absolute inset-0 bg-red-950/20 backdrop-blur-[0.5px] z-20 flex flex-col items-center justify-center p-4">
               <span className="text-white font-orbitron text-[10px] md:text-xs uppercase tracking-[0.2em] font-bold"></span>           
           </div>
           // <div className="absolute inset-0 bg-red-950/20 backdrop-blur-[1px] z-20 flex flex-col items-center justify-center text-center p-4">
