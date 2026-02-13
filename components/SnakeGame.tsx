@@ -565,11 +565,14 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
         })}
 
         {isGracePeriod && !isAIOpponent && (
-          <div className="absolute inset-0 bg-red-950/20 backdrop-blur-[1px] z-20 flex flex-col items-center justify-center text-center p-4">
-             <div className="bg-red-500 border border-red-400 px-4 py-2 rounded-xl animate-bounce shadow-lg">
-                <span className="text-white font-orbitron text-[10px] md:text-xs uppercase tracking-[0.2em] font-bold">KOLIZJA! SKRĘĆ!</span>
-             </div>
+          <div className="absolute inset-0 bg-red-950/20 backdrop-blur-[0.5px] z-20 flex flex-col items-center justify-center text-center p-4">
+              <span className="text-white font-orbitron text-[10px] md:text-xs uppercase tracking-[0.2em] font-bold"></span>           
           </div>
+          // <div className="absolute inset-0 bg-red-950/20 backdrop-blur-[1px] z-20 flex flex-col items-center justify-center text-center p-4">
+          //    <div className="bg-red-500 border border-red-400 px-4 py-2 rounded-xl animate-bounce shadow-lg">
+          //       <span className="text-white font-orbitron text-[10px] md:text-xs uppercase tracking-[0.2em] font-bold">KOLIZJA! SKRĘĆ!</span>
+          //    </div>
+          // </div>
         )}
 
         {isWaitingForFirstMove && !isAIOpponent && (
@@ -653,14 +656,21 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
               </div>
             )}
             {game.status === GameStatus.STALLED && (
-              <div className="animate-in fade-in zoom-in duration-300">
-                <h2 className="text-3xl font-orbitron text-yellow-500 mb-6 uppercase tracking-widest">System Zablokowany</h2>
-                <p className={`${isDark ? 'text-slate-400' : 'text-slate-600'} mb-10 font-orbitron text-xs uppercase tracking-tighter max-w-[200px] mx-auto`}>Wykryto brak możliwości manewru przez 5 sekund.</p>
+              <div className="animate-in zoom-in duration-300"> //<div className="animate-in fade-in zoom-in duration-300">
+              //<h2 className="text-3xl font-orbitron text-yellow-500 mb-6 uppercase tracking-widest">System Zablokowany</h2>
+                <p className={`${isDark ? 'text-slate-400' : 'text-slate-600'} mb-10 font-orbitron text-xs uppercase tracking-tighter max-w-[200px] mx-auto`}></p>
                 <div className="flex gap-4 justify-center">
                    <button onClick={() => setGame(prev => ({ ...prev, status: GameStatus.PLAYING }))} className="bg-slate-700 hover:bg-slate-600 text-white font-orbitron font-bold py-4 px-8 rounded-xl transition-all uppercase text-[10px] md:text-[12px]">Zostań</button>
                    <button onClick={resetGame} className="bg-yellow-600 hover:bg-yellow-500 text-white font-orbitron font-bold py-4 px-8 rounded-xl transition-all uppercase text-[10px] md:text-[12px]">Resetuj</button>
                 </div>
               </div>
+              
+              //   <p className={`${isDark ? 'text-slate-400' : 'text-slate-600'} mb-10 font-orbitron text-xs uppercase tracking-tighter max-w-[200px] mx-auto`}>Wykryto brak możliwości manewru przez 5 sekund.</p>
+              //   <div className="flex gap-4 justify-center">
+              //      <button onClick={() => setGame(prev => ({ ...prev, status: GameStatus.PLAYING }))} className="bg-slate-700 hover:bg-slate-600 text-white font-orbitron font-bold py-4 px-8 rounded-xl transition-all uppercase text-[10px] md:text-[12px]">Zostań</button>
+              //      <button onClick={resetGame} className="bg-yellow-600 hover:bg-yellow-500 text-white font-orbitron font-bold py-4 px-8 rounded-xl transition-all uppercase text-[10px] md:text-[12px]">Resetuj</button>
+              //   </div>
+              // </div>
             )}
           </div>
         )}
