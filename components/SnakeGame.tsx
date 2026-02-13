@@ -6,9 +6,8 @@ import {
   INITIAL_DIRECTION, 
   KEY_MAP, 
   OPPOSITE_DIRECTIONS,
-  SPEED_INCREMENT,
-  MIN_SPEED,
-  DIFFICULTY_SPEEDS
+  CONSTANT_SPEED,
+  GRACE_PERIOD_MS
 } from '../constants';
 
 const COLORS = [
@@ -56,7 +55,7 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
     status: GameStatus.IDLE,
     score: 0,
     highScore: Number(localStorage.getItem('highScore')) || 0,
-    speed: DIFFICULTY_SPEEDS[Difficulty.NORMAL],
+    speed: CONSTANT_SPEED,
     isAutoPilot: isAIOpponent,
     settings: sharedSettings || {
       foodCount: 10,
@@ -70,11 +69,13 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
   });
 
   const [isWaitingForFirstMove, setIsWaitingForFirstMove] = useState(false);
+  const [isGracePeriod, setIsGracePeriod] = useState(false);
   
   const gameLoopRef = useRef<number | null>(null);
   const directionRef = useRef<Direction>(INITIAL_DIRECTION);
   const lastProcessedDirectionRef = useRef<Direction>(INITIAL_DIRECTION);
   const stallTimerRef = useRef<number | null>(null);
+  const graceTimerRef = useRef<number | null>(null);
   const touchStartRef = useRef<Point | null>(null);
   const magnetCounterRef = useRef<number>(0);
 
@@ -83,7 +84,7 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
       setGame(prev => ({ 
         ...prev, 
         settings: { ...sharedSettings, snakeColor: isAIOpponent ? COLORS[2].value : sharedSettings.snakeColor },
-        speed: DIFFICULTY_SPEEDS[sharedSettings.difficulty]
+        speed: CONSTANT_SPEED
       }));
     }
   }, [sharedSettings, isAIOpponent]);
@@ -122,6 +123,11 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
     const newFoods = generateFood(newSnake, game.settings.foodCount, game.settings.gridSize);
     directionRef.current = INITIAL_DIRECTION;
     lastProcessedDirectionRef.current = INITIAL_DIRECTION;
+    setIsGracePeriod(false);
+    if (graceTimerRef.current) {
+      clearTimeout(graceTimerRef.current);
+      graceTimerRef.current = null;
+    }
     setGame(prev => ({
       ...prev,
       snake: newSnake,
@@ -129,7 +135,7 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
       direction: INITIAL_DIRECTION,
       status: GameStatus.PLAYING,
       score: 0,
-      speed: DIFFICULTY_SPEEDS[prev.settings.difficulty],
+      speed: CONSTANT_SPEED,
       isAutoPilot: isAIOpponent
     }));
     
@@ -300,7 +306,7 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
 
   const moveSnake = useCallback(() => {
     setGame(prev => {
-      if (prev.status !== GameStatus.PLAYING || isWaitingForFirstMove) return prev;
+      if (prev.status !== GameStatus.PLAYING || isWaitingForFirstMove || isGracePeriod) return prev;
       let currentDir = directionRef.current;
       
       if (prev.isAutoPilot) {
@@ -325,14 +331,29 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
       
       const isOutOfBounds = newHead.x < 0 || newHead.x >= gridSize || newHead.y < 0 || newHead.y >= gridSize;
       
+      // Collision Grace Logic
+      const selfCollision = prev.snake.some(segment => segment.x === newHead.x && segment.y === newHead.y);
+      const isActuallyColliding = (prev.settings.mode === GameMode.NORMAL && (isOutOfBounds || selfCollision)) || 
+                                   (prev.settings.mode === GameMode.WRAP && selfCollision);
+
+      if (isActuallyColliding && !prev.isAutoPilot) {
+        // Trigger grace period
+        setIsGracePeriod(true);
+        graceTimerRef.current = window.setTimeout(() => {
+          gameOver();
+          setIsGracePeriod(false);
+        }, GRACE_PERIOD_MS);
+        return prev;
+      }
+
+      // Standard movement logic
       if (prev.settings.mode === GameMode.GOD) {
         let np = { ...newHead };
         if (isOutOfBounds) { np.x = (np.x + gridSize) % gridSize; np.y = (np.y + gridSize) % gridSize; }
-        const selfCollision = prev.snake.some(segment => segment.x === np.x && segment.y === np.y);
-        if (selfCollision) return prev;
+        const godSelfCollision = prev.snake.some(segment => segment.x === np.x && segment.y === np.y);
+        if (godSelfCollision) return prev;
         newHead.x = np.x; newHead.y = np.y;
       } else {
-        const selfCollision = prev.snake.some(segment => segment.x === newHead.x && segment.y === newHead.y);
         if (isOutOfBounds) {
           if (prev.settings.mode === GameMode.NORMAL) { gameOver(); return prev; } 
           else if (prev.settings.mode === GameMode.WRAP) { newHead.x = (newHead.x + gridSize) % gridSize; newHead.y = (newHead.y + gridSize) % gridSize; } 
@@ -343,7 +364,6 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
 
       const newSnake = [newHead, ...prev.snake];
       let newScore = prev.score;
-      let newSpeed = prev.speed;
       const foodIndex = prev.foods.findIndex(f => f.x === newHead.x && f.y === newHead.y);
 
       let currentFoods = [...prev.foods];
@@ -380,9 +400,8 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
         }
         const remainingFoods = currentFoods.filter((_, i) => i !== foodIndex);
         const newFoods = generateFood(newSnake, prev.settings.foodCount, gridSize, remainingFoods);
-        newSpeed = Math.max(MIN_SPEED, prev.speed - SPEED_INCREMENT);
         onStateChange(GameStatus.PLAYING, newScore);
-        return { ...prev, snake: newSnake, foods: newFoods, score: newScore, speed: newSpeed, direction: currentDir };
+        return { ...prev, snake: newSnake, foods: newFoods, score: newScore, direction: currentDir };
       } else {
         newSnake.pop();
         if (currentFoods.length < prev.settings.foodCount) {
@@ -391,7 +410,7 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
         return { ...prev, snake: newSnake, foods: currentFoods, direction: currentDir };
       }
     });
-  }, [generateFood, onStateChange, isWaitingForFirstMove]);
+  }, [generateFood, onStateChange, isWaitingForFirstMove, isGracePeriod]);
 
   useEffect(() => {
     if (game.status === GameStatus.PLAYING) {
@@ -405,11 +424,40 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
     if (isWaitingForFirstMove) {
       setIsWaitingForFirstMove(false);
     }
+    
+    // If in grace period, check if the new direction avoids collision
+    if (isGracePeriod) {
+      const currentHead = game.snake[0];
+      const nextHead = { ...currentHead };
+      switch (newDir) {
+        case Direction.UP: nextHead.y -= 1; break;
+        case Direction.DOWN: nextHead.y += 1; break;
+        case Direction.LEFT: nextHead.x -= 1; break;
+        case Direction.RIGHT: nextHead.x += 1; break;
+      }
+      
+      const gridSize = game.settings.gridSize;
+      const isOutOfBounds = nextHead.x < 0 || nextHead.x >= gridSize || nextHead.y < 0 || nextHead.y >= gridSize;
+      const selfCollision = game.snake.some(segment => segment.x === nextHead.x && segment.y === nextHead.y);
+      const wouldStillCollide = (game.settings.mode === GameMode.NORMAL && (isOutOfBounds || selfCollision)) || 
+                                (game.settings.mode === GameMode.WRAP && selfCollision);
+
+      if (!wouldStillCollide && OPPOSITE_DIRECTIONS[newDir] !== lastProcessedDirectionRef.current) {
+        if (graceTimerRef.current) {
+          clearTimeout(graceTimerRef.current);
+          graceTimerRef.current = null;
+        }
+        setIsGracePeriod(false);
+        directionRef.current = newDir;
+      }
+      return;
+    }
+
     if (OPPOSITE_DIRECTIONS[newDir] !== lastProcessedDirectionRef.current) {
       setGame(prev => ({ ...prev, isAutoPilot: false }));
       directionRef.current = newDir;
     }
-  }, [isWaitingForFirstMove]);
+  }, [isWaitingForFirstMove, isGracePeriod, game.snake, game.settings.mode, game.settings.gridSize]);
 
   useEffect(() => {
     if (isAIOpponent) return;
@@ -430,11 +478,7 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
   }, [game.status, isAIOpponent, handleStartInteraction]);
 
   const updateSettings = (updates: Partial<GameSettings>) => {
-    setGame(prev => {
-      const newSettings = { ...prev.settings, ...updates };
-      const newSpeed = updates.difficulty ? DIFFICULTY_SPEEDS[updates.difficulty] : prev.speed;
-      return { ...prev, settings: newSettings, speed: newSpeed };
-    });
+    setGame(prev => ({ ...prev, settings: { ...prev.settings, ...updates } }));
   };
 
   const handleTouchStart = (e: React.TouchEvent) => {
@@ -497,7 +541,17 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
         }}
       >
         {game.snake.map((segment, i) => (
-          <div key={`${i}-${segment.x}-${segment.y}`} className="rounded-sm z-10" style={{ gridColumn: segment.x + 1, gridRow: segment.y + 1, backgroundColor: game.settings.snakeColor, opacity: i === 0 ? 1 : 0.7, boxShadow: i === 0 ? `0 0 10px ${game.settings.snakeColor}` : 'none' }} />
+          <div 
+            key={`${i}-${segment.x}-${segment.y}`} 
+            className={`rounded-sm z-10 ${i === 0 && isGracePeriod ? 'animate-ping bg-red-500' : ''}`} 
+            style={{ 
+              gridColumn: segment.x + 1, 
+              gridRow: segment.y + 1, 
+              backgroundColor: i === 0 && isGracePeriod ? '#ef4444' : game.settings.snakeColor, 
+              opacity: i === 0 ? 1 : 0.7, 
+              boxShadow: i === 0 ? `0 0 10px ${isGracePeriod ? '#ef4444' : game.settings.snakeColor}` : 'none' 
+            }} 
+          />
         ))}
         {game.foods.map((food, i) => {
           let opacity = 1;
@@ -509,6 +563,14 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
             <div key={`food-${i}-${food.x}-${food.y}`} className="bg-purple-500 rounded-full animate-pulse z-20" style={{ gridColumn: food.x + 1, gridRow: food.y + 1, boxShadow: '0 0 15px #a855f7', opacity }} />
           );
         })}
+
+        {isGracePeriod && !isAIOpponent && (
+          <div className="absolute inset-0 bg-red-950/20 backdrop-blur-[1px] z-20 flex flex-col items-center justify-center text-center p-4">
+             <div className="bg-red-500 border border-red-400 px-4 py-2 rounded-xl animate-bounce shadow-lg">
+                <span className="text-white font-orbitron text-[10px] md:text-xs uppercase tracking-[0.2em] font-bold">KOLIZJA! SKRĘĆ!</span>
+             </div>
+          </div>
+        )}
 
         {isWaitingForFirstMove && !isAIOpponent && (
           <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-[2px] z-20 flex flex-col items-center justify-center text-center p-4">
@@ -531,7 +593,7 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
           <div className={`absolute inset-0 ${isDark ? 'bg-slate-950/90' : 'bg-white/95'} backdrop-blur-md z-30 flex flex-col items-center justify-center text-center p-8 md:p-12 overflow-y-auto custom-scrollbar`}>
             {game.status === GameStatus.IDLE && (
               <div className="w-full space-y-3">
-                <h2 className={`text-2xl md:text-4xl font-orbitron ${isDark ? 'text-cyan-400 neon-text' : 'text-cyan-600'} uppercase tracking-widest mb-6`}>''</h2>
+                <h2 className={`text-2xl md:text-4xl font-orbitron ${isDark ? 'text-cyan-400 neon-text' : 'text-cyan-600'} uppercase tracking-widest mb-6`}>NEON CONFIG</h2>
                 
                 <div className="space-y-15 text-left">
                   <label className={`text-[10px] md:text-[12px] ${isDark ? 'text-slate-500' : 'text-slate-400'} uppercase font-orbitron flex justify-between`}>Rozmiar mapy <span>{game.settings.gridSize}x{game.settings.gridSize}</span></label>
@@ -608,7 +670,7 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
 
       {!isAIOpponent && game.status !== GameStatus.PLAYING && externalStatus === undefined && (
         <div className="w-full flex flex-col gap-2 items-center animate-in fade-in slide-in-from-bottom-2 duration-300">
-          <div className={`w-full max-w-[380px] md:max-w-[420px] px-4 py-[31px] rounded-xl border transition-all backdrop-blur-md ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-slate-100 border-slate-200 shadow-sm'}`}>
+          <div className={`w-full max-w-[380px] md:max-w-[420px] px-4 py-[46px] rounded-xl border transition-all backdrop-blur-md ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-slate-100 border-slate-200 shadow-sm'}`}>
             <h3 className={`font-orbitron text-[10px] uppercase tracking-widest mb-3 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Tryb Kulek Energii</h3>
             <div className="grid grid-cols-3 gap-2">
               {FOOD_MODES_INFO.map(mode => (
@@ -622,29 +684,6 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
                   <span className="text-[8px] font-orbitron uppercase tracking-tighter">{mode.name}</span>
                 </button>
               ))}
-            </div>
-          </div>
-
-          <div className={`w-full max-w-[380px] md:max-w-[420px] px-4 py-[31px] rounded-xl border transition-all backdrop-blur-md ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-slate-100 border-slate-200 shadow-sm'}`}>
-            <div className="flex justify-between items-center mb-3">
-              <h3 className={`font-orbitron text-[10px] uppercase tracking-widest ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Prędkość Ruchu</h3>
-              <span className="text-[10px] font-orbitron text-cyan-500 font-bold uppercase">{Math.round(700 / game.speed)} PPS</span>
-            </div>
-            <div className="flex items-center gap-4">
-              <i className="fa-solid fa-turtle text-xs text-slate-500"></i>
-              <input 
-                type="range" 
-                min="50" 
-                max="300" 
-                step="10" 
-                value={350 - game.speed} 
-                onChange={(e) => {
-                  const val = parseInt(e.target.value);
-                  setGame(prev => ({ ...prev, speed: 350 - val }));
-                }} 
-                className="w-full h-1.5 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500" 
-              />
-              <i className="fa-solid fa-rabbit text-xs text-slate-500"></i>
             </div>
           </div>
         </div>

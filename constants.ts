@@ -2,15 +2,16 @@
 import { Direction, Point, Difficulty } from './types';
 
 export const GRID_SIZE = 20;
-export const INITIAL_SPEED = 150;
-export const SPEED_INCREMENT = 2;
-export const MIN_SPEED = 60;
+export const CONSTANT_SPEED = 110; // Stała prędkość ruchu (ms)
+export const SPEED_INCREMENT = 0; // Brak przyspieszania
+export const MIN_SPEED = 110;
+export const GRACE_PERIOD_MS = 500; // 0.5 sekundy na reakcję przy kolizji
 
 export const DIFFICULTY_SPEEDS: Record<Difficulty, number> = {
-  [Difficulty.EASY]: 200,
-  [Difficulty.NORMAL]: 150,
-  [Difficulty.HARD]: 100,
-  [Difficulty.HARDCORE]: 60,
+  [Difficulty.EASY]: 110,
+  [Difficulty.NORMAL]: 110,
+  [Difficulty.HARD]: 110,
+  [Difficulty.HARDCORE]: 110,
 };
 
 export const INITIAL_SNAKE: Point[] = [
