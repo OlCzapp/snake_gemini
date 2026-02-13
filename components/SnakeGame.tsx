@@ -38,7 +38,6 @@ interface SnakeGameProps {
   externalStatus?: GameStatus;
   sharedSettings?: GameSettings;
   isDark?: boolean;
-  controlMethod?: 'buttons' | 'swipe';
 }
 
 export interface SnakeGameHandle {
@@ -49,7 +48,7 @@ export interface SnakeGameHandle {
   getScore: () => number;
 }
 
-const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, isAIOpponent = false, externalStatus, sharedSettings, isDark = true, controlMethod = 'buttons' }, ref) => {
+const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, isAIOpponent = false, externalStatus, sharedSettings, isDark = true }, ref) => {
   const [game, setGame] = useState<GameState>({
     snake: INITIAL_SNAKE,
     foods: [],
@@ -70,6 +69,8 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
     }
   });
 
+  const [isWaitingForFirstMove, setIsWaitingForFirstMove] = useState(false);
+  
   const gameLoopRef = useRef<number | null>(null);
   const directionRef = useRef<Direction>(INITIAL_DIRECTION);
   const lastProcessedDirectionRef = useRef<Direction>(INITIAL_DIRECTION);
@@ -131,6 +132,11 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
       speed: DIFFICULTY_SPEEDS[prev.settings.difficulty],
       isAutoPilot: isAIOpponent
     }));
+    
+    if (!isAIOpponent) {
+      setIsWaitingForFirstMove(true);
+    }
+    
     onStateChange(GameStatus.PLAYING, 0);
     if (stallTimerRef.current) {
       clearTimeout(stallTimerRef.current);
@@ -294,7 +300,7 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
 
   const moveSnake = useCallback(() => {
     setGame(prev => {
-      if (prev.status !== GameStatus.PLAYING) return prev;
+      if (prev.status !== GameStatus.PLAYING || isWaitingForFirstMove) return prev;
       let currentDir = directionRef.current;
       
       if (prev.isAutoPilot) {
@@ -340,7 +346,6 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
       let newSpeed = prev.speed;
       const foodIndex = prev.foods.findIndex(f => f.x === newHead.x && f.y === newHead.y);
 
-      // Handle Food Logic (Magnet & Fading)
       let currentFoods = [...prev.foods];
       
       if (prev.settings.foodMode === FoodMode.FADING) {
@@ -360,7 +365,6 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
             if (food.y < newHead.y) ny++;
             else if (food.y > newHead.y) ny--;
             
-            // Check collisions with snake or other foods
             const collides = newSnake.some(s => s.x === nx && s.y === ny) || currentFoods.some(f => f !== food && f.x === nx && f.y === ny);
             if (!collides) return { ...food, x: nx, y: ny };
             return food;
@@ -381,14 +385,13 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
         return { ...prev, snake: newSnake, foods: newFoods, score: newScore, speed: newSpeed, direction: currentDir };
       } else {
         newSnake.pop();
-        // If some food faded away, respawn
         if (currentFoods.length < prev.settings.foodCount) {
           currentFoods = generateFood(newSnake, prev.settings.foodCount, gridSize, currentFoods);
         }
         return { ...prev, snake: newSnake, foods: currentFoods, direction: currentDir };
       }
     });
-  }, [generateFood, onStateChange]);
+  }, [generateFood, onStateChange, isWaitingForFirstMove]);
 
   useEffect(() => {
     if (game.status === GameStatus.PLAYING) {
@@ -397,6 +400,16 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
     } else { if (gameLoopRef.current) clearInterval(gameLoopRef.current); }
     return () => { if (gameLoopRef.current) clearInterval(gameLoopRef.current); };
   }, [game.status, game.speed, moveSnake, game.snake]);
+
+  const handleStartInteraction = useCallback((newDir: Direction) => {
+    if (isWaitingForFirstMove) {
+      setIsWaitingForFirstMove(false);
+    }
+    if (OPPOSITE_DIRECTIONS[newDir] !== lastProcessedDirectionRef.current) {
+      setGame(prev => ({ ...prev, isAutoPilot: false }));
+      directionRef.current = newDir;
+    }
+  }, [isWaitingForFirstMove]);
 
   useEffect(() => {
     if (isAIOpponent) return;
@@ -408,14 +421,13 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
         return;
       }
       const newDir = KEY_MAP[e.key];
-      if (newDir && OPPOSITE_DIRECTIONS[newDir] !== lastProcessedDirectionRef.current) {
-        setGame(prev => ({ ...prev, isAutoPilot: false }));
-        directionRef.current = newDir;
+      if (newDir) {
+        handleStartInteraction(newDir);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [game.status, isAIOpponent]);
+  }, [game.status, isAIOpponent, handleStartInteraction]);
 
   const updateSettings = (updates: Partial<GameSettings>) => {
     setGame(prev => {
@@ -425,27 +437,23 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
     });
   };
 
-  const handleControlClick = (dir: Direction) => {
-    if (game.status !== GameStatus.PLAYING) return;
-    if (OPPOSITE_DIRECTIONS[dir] !== lastProcessedDirectionRef.current) {
-      setGame(prev => ({ ...prev, isAutoPilot: false }));
-      directionRef.current = dir;
-    }
-  };
-
   const handleTouchStart = (e: React.TouchEvent) => {
-    if (isAIOpponent || controlMethod !== 'swipe' || game.status !== GameStatus.PLAYING) return;
+    if (isAIOpponent || game.status !== GameStatus.PLAYING) return;
     touchStartRef.current = { x: e.touches[0].clientX, y: e.touches[0].clientY };
   };
 
   const handleTouchEnd = (e: React.TouchEvent) => {
-    if (!touchStartRef.current || controlMethod !== 'swipe') return;
+    if (!touchStartRef.current) return;
     const touchEnd = { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
     const dx = touchEnd.x - touchStartRef.current.x;
     const dy = touchEnd.y - touchStartRef.current.y;
     const minDistance = 30;
-    if (Math.abs(dx) > Math.abs(dy)) { if (Math.abs(dx) > minDistance) { handleControlClick(dx > 0 ? Direction.RIGHT : Direction.LEFT); } } 
-    else { if (Math.abs(dy) > minDistance) { handleControlClick(dy > 0 ? Direction.DOWN : Direction.UP); } }
+    if (Math.abs(dx) > Math.abs(dy)) { 
+      if (Math.abs(dx) > minDistance) { handleStartInteraction(dx > 0 ? Direction.RIGHT : Direction.LEFT); } 
+    } 
+    else { 
+      if (Math.abs(dy) > minDistance) { handleStartInteraction(dy > 0 ? Direction.DOWN : Direction.UP); } 
+    }
     touchStartRef.current = null;
   };
 
@@ -502,6 +510,14 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
           );
         })}
 
+        {isWaitingForFirstMove && !isAIOpponent && (
+          <div className="absolute inset-0 bg-slate-950/40 backdrop-blur-[2px] z-20 flex flex-col items-center justify-center text-center p-4">
+             <div className="bg-cyan-500/10 border border-cyan-500/30 px-6 py-3 rounded-2xl animate-pulse">
+                <span className="text-cyan-400 font-orbitron text-[10px] md:text-xs uppercase tracking-[0.2em]">Wykonaj pierwszy ruch</span>
+             </div>
+          </div>
+        )}
+
         {!isAIOpponent && (game.status === GameStatus.PLAYING || game.status === GameStatus.STALLED) && externalStatus === undefined && (
           <button 
             onClick={() => setGame(prev => ({ ...prev, status: GameStatus.IDLE }))}
@@ -514,10 +530,10 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
         {!isAIOpponent && game.status !== GameStatus.PLAYING && externalStatus === undefined && (
           <div className={`absolute inset-0 ${isDark ? 'bg-slate-950/90' : 'bg-white/95'} backdrop-blur-md z-30 flex flex-col items-center justify-center text-center p-8 md:p-12 overflow-y-auto custom-scrollbar`}>
             {game.status === GameStatus.IDLE && (
-              <div className="w-full space-y-6">
-                <h2 className={`text-2xl md:text-4xl font-orbitron ${isDark ? 'text-cyan-400 neon-text' : 'text-cyan-600'} uppercase tracking-widest mb-6`}>Konfiguracja</h2>
+              <div className="w-full space-y-3">
+                <h2 className={`text-2xl md:text-4xl font-orbitron ${isDark ? 'text-cyan-400 neon-text' : 'text-cyan-600'} uppercase tracking-widest mb-6`}>''</h2>
                 
-                <div className="space-y-2 text-left">
+                <div className="space-y-15 text-left">
                   <label className={`text-[10px] md:text-[12px] ${isDark ? 'text-slate-500' : 'text-slate-400'} uppercase font-orbitron flex justify-between`}>Rozmiar mapy <span>{game.settings.gridSize}x{game.settings.gridSize}</span></label>
                   <input type="range" min="10" max="30" step="5" value={game.settings.gridSize} onChange={(e) => updateSettings({ gridSize: parseInt(e.target.value) })} className="w-full h-2 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-cyan-500" />
                 </div>
@@ -590,11 +606,9 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
         {isAIOpponent && <div className="absolute top-3 right-3 z-40 bg-purple-900/40 px-3 py-1 rounded border border-purple-500/50 backdrop-blur-sm"><span className="text-[9px] font-orbitron text-purple-200 uppercase tracking-widest animate-pulse">AI Core Active</span></div>}
       </div>
 
-      {/* Control Panels - Now disappearing when PLAYING status is active or when it's an AI opponent */}
       {!isAIOpponent && game.status !== GameStatus.PLAYING && externalStatus === undefined && (
         <div className="w-full flex flex-col gap-2 items-center animate-in fade-in slide-in-from-bottom-2 duration-300">
-          {/* Tryb Kulek Panel */}
-          <div className={`w-full max-w-[380px] md:max-w-[420px] p-4 rounded-xl border transition-all backdrop-blur-md ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-slate-100 border-slate-200 shadow-sm'}`}>
+          <div className={`w-full max-w-[380px] md:max-w-[420px] px-4 py-[31px] rounded-xl border transition-all backdrop-blur-md ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-slate-100 border-slate-200 shadow-sm'}`}>
             <h3 className={`font-orbitron text-[10px] uppercase tracking-widest mb-3 ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Tryb Kulek Energii</h3>
             <div className="grid grid-cols-3 gap-2">
               {FOOD_MODES_INFO.map(mode => (
@@ -611,11 +625,10 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
             </div>
           </div>
 
-          {/* Prędkość Ruchu Panel */}
-          <div className={`w-full max-w-[380px] md:max-w-[420px] p-4 rounded-xl border transition-all backdrop-blur-md ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-slate-100 border-slate-200 shadow-sm'}`}>
+          <div className={`w-full max-w-[380px] md:max-w-[420px] px-4 py-[31px] rounded-xl border transition-all backdrop-blur-md ${isDark ? 'bg-slate-900/40 border-slate-800' : 'bg-slate-100 border-slate-200 shadow-sm'}`}>
             <div className="flex justify-between items-center mb-3">
               <h3 className={`font-orbitron text-[10px] uppercase tracking-widest ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>Prędkość Ruchu</h3>
-              <span className="text-[10px] font-orbitron text-cyan-500 font-bold uppercase">{Math.round(1000 / game.speed)} PPS</span>
+              <span className="text-[10px] font-orbitron text-cyan-500 font-bold uppercase">{Math.round(700 / game.speed)} PPS</span>
             </div>
             <div className="flex items-center gap-4">
               <i className="fa-solid fa-turtle text-xs text-slate-500"></i>
@@ -637,14 +650,14 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
         </div>
       )}
 
-      {!isAIOpponent && game.status === GameStatus.PLAYING && controlMethod === 'buttons' && (
-        <div className="lg:hidden mt-8 flex flex-col items-center gap-3">
-           <button onClick={() => handleControlClick(Direction.UP)} className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all active:scale-90 ${isDark ? 'bg-slate-800 text-cyan-400 border border-slate-700 shadow-lg' : 'bg-slate-200 text-cyan-600 border border-slate-300 shadow-md'}`}><i className="fa-solid fa-chevron-up text-2xl"></i></button>
-           <div className="flex gap-16">
-              <button onClick={() => handleControlClick(Direction.LEFT)} className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all active:scale-90 ${isDark ? 'bg-slate-800 text-cyan-400 border border-slate-700 shadow-lg' : 'bg-slate-200 text-cyan-600 border border-slate-300 shadow-md'}`}><i className="fa-solid fa-chevron-left text-2xl"></i></button>
-              <button onClick={() => handleControlClick(Direction.RIGHT)} className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all active:scale-90 ${isDark ? 'bg-slate-800 text-cyan-400 border border-slate-700 shadow-lg' : 'bg-slate-200 text-cyan-600 border border-slate-300 shadow-md'}`}><i className="fa-solid fa-chevron-right text-2xl"></i></button>
+      {!isAIOpponent && game.status === GameStatus.PLAYING && (
+        <div className="lg:hidden mt-5 flex flex-col items-center gap-1 animate-in fade-in slide-in-from-bottom-3 duration-500">
+           <button onClick={() => handleStartInteraction(Direction.UP)} className={`w-[50px] h-[50px] rounded-2xl flex items-center justify-center transition-all active:scale-90 ${isDark ? 'bg-slate-800/80 text-cyan-400 border border-slate-700 shadow-lg' : 'bg-slate-200/90 text-cyan-600 border border-slate-300 shadow-md'}`}><i className="fa-solid fa-chevron-up text-2xl"></i></button>
+           <div className="flex gap-20">
+              <button onClick={() => handleStartInteraction(Direction.LEFT)} className={`w-[50px] h-[50px] rounded-2xl flex items-center justify-center transition-all active:scale-90 ${isDark ? 'bg-slate-800/80 text-cyan-400 border border-slate-700 shadow-lg' : 'bg-slate-200/90 text-cyan-600 border border-slate-300 shadow-md'}`}><i className="fa-solid fa-chevron-left text-2xl"></i></button>
+              <button onClick={() => handleStartInteraction(Direction.RIGHT)} className={`w-[50px] h-[50px] rounded-2xl flex items-center justify-center transition-all active:scale-90 ${isDark ? 'bg-slate-800/80 text-cyan-400 border border-slate-700 shadow-lg' : 'bg-slate-200/90 text-cyan-600 border border-slate-300 shadow-md'}`}><i className="fa-solid fa-chevron-right text-2xl"></i></button>
            </div>
-           <button onClick={() => handleControlClick(Direction.DOWN)} className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all active:scale-90 ${isDark ? 'bg-slate-800 text-cyan-400 border border-slate-700 shadow-lg' : 'bg-slate-200 text-cyan-600 border border-slate-300 shadow-md'}`}><i className="fa-solid fa-chevron-down text-2xl"></i></button>
+           <button onClick={() => handleStartInteraction(Direction.DOWN)} className={`w-[50px] h-[50px] rounded-2xl flex items-center justify-center transition-all active:scale-90 ${isDark ? 'bg-slate-800/80 text-cyan-400 border border-slate-700 shadow-lg' : 'bg-slate-200/90 text-cyan-600 border border-slate-300 shadow-md'}`}><i className="fa-solid fa-chevron-down text-2xl"></i></button>
         </div>
       )}
     </div>

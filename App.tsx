@@ -6,7 +6,7 @@ import { GameStatus, GameType, Difficulty, GameMode, GameSettings, FoodMode } fr
 const App: React.FC = () => {
   const [gameType, setGameType] = useState<GameType>(GameType.SOLO);
   const [theme, setTheme] = useState<'dark' | 'light'>('dark');
-  const [controlMethod, setControlMethod] = useState<'buttons' | 'swipe'>('buttons');
+  const [playerStatus, setPlayerStatus] = useState<GameStatus>(GameStatus.IDLE);
   
   const [versusStatus, setVersusStatus] = useState<GameStatus>(GameStatus.IDLE);
   const [playerScore, setPlayerScore] = useState(0);
@@ -31,6 +31,7 @@ const App: React.FC = () => {
       setAiScore(score);
     } else {
       setPlayerScore(score);
+      setPlayerStatus(status);
     }
 
     if (gameType === GameType.VERSUS && versusStatus === GameStatus.PLAYING) {
@@ -67,13 +68,14 @@ const App: React.FC = () => {
   ];
 
   const isDark = theme === 'dark';
+  const isPlaying = (gameType === GameType.SOLO && playerStatus === GameStatus.PLAYING) || 
+                    (gameType === GameType.VERSUS && versusStatus === GameStatus.PLAYING);
 
   return (
     <div className={`min-h-screen transition-colors duration-500 flex flex-col items-center justify-center p-4 ${isDark ? 'bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}`}>
       
-      <header className="w-full max-w-4xl mb-6 flex flex-col items-center">
+      <header className={`w-full max-w-4xl mb-6 flex-col items-center transition-all duration-300 ${isPlaying ? 'hidden lg:flex' : 'flex'}`}>
         <div className="w-full flex justify-between items-center mb-4">
-          <div className="w-10 h-10" /> 
           <h1 className={`text-3xl md:text-5xl font-orbitron font-bold tracking-widest ${isDark ? 'text-cyan-400 neon-text' : 'text-cyan-600'}`}>
             NEON SNAKE AI
           </h1>
@@ -87,13 +89,13 @@ const App: React.FC = () => {
 
         <div className="flex justify-center gap-4">
           <button 
-            onClick={() => { setGameType(GameType.SOLO); setVersusStatus(GameStatus.IDLE); }}
+            onClick={() => { setGameType(GameType.SOLO); setVersusStatus(GameStatus.IDLE); setPlayerStatus(GameStatus.IDLE); }}
             className={`px-6 py-2 rounded-full font-orbitron text-[10px] tracking-widest border transition-all ${gameType === GameType.SOLO ? 'bg-cyan-500 text-slate-950 border-cyan-400 shadow-lg shadow-cyan-500/20' : isDark ? 'bg-transparent text-cyan-500 border-cyan-500/50 hover:bg-cyan-500/10' : 'bg-transparent text-cyan-600 border-cyan-600/50 hover:bg-cyan-600/10'}`}
           >
             SOLO
           </button>
           <button 
-            onClick={() => { setGameType(GameType.VERSUS); setVersusStatus(GameStatus.IDLE); }}
+            onClick={() => { setGameType(GameType.VERSUS); setVersusStatus(GameStatus.IDLE); setPlayerStatus(GameStatus.IDLE); }}
             className={`px-6 py-2 rounded-full font-orbitron text-[10px] tracking-widest border transition-all ${gameType === GameType.VERSUS ? 'bg-purple-500 text-slate-950 border-purple-400 shadow-lg shadow-purple-500/20' : isDark ? 'bg-transparent text-purple-500 border-purple-500/50 hover:bg-purple-500/10' : 'bg-transparent text-purple-600 border-purple-600/50 hover:bg-purple-600/10'}`}
           >
             VERSUS AI
@@ -167,7 +169,6 @@ const App: React.FC = () => {
              <SnakeGame 
                 ref={playerRef}
                 isDark={isDark}
-                controlMethod={controlMethod}
                 onStateChange={(s, sc) => handleGameStateChange(s, sc, false)} 
                 externalStatus={gameType === GameType.VERSUS ? versusStatus : undefined}
                 sharedSettings={gameType === GameType.VERSUS ? versusSettings : undefined}
@@ -190,7 +191,7 @@ const App: React.FC = () => {
                           {versusWinner === 'player' ? 'GRACZ WYGRYWA!' : versusWinner === 'ai' ? 'AI WYGRYWA!' : 'REMIS'}
                         </p>
                         <button 
-                          onClick={() => setVersusStatus(GameStatus.IDLE)} 
+                          onClick={() => { setVersusStatus(GameStatus.IDLE); setPlayerStatus(GameStatus.IDLE); }} 
                           className={`text-[10px] font-orbitron uppercase tracking-widest px-6 py-2.5 rounded-xl transition-all ${isDark ? 'bg-slate-700 hover:bg-slate-600 text-white' : 'bg-slate-200 hover:bg-slate-300 text-slate-700'}`}
                         >
                             Konfiguruj Ponownie
@@ -205,7 +206,7 @@ const App: React.FC = () => {
                             <div className={`w-2 h-2 rounded-full animate-bounce bg-cyan-500`} style={{ animationDelay: '300ms' }}></div>
                          </div>
                          <button 
-                           onClick={() => setVersusStatus(GameStatus.IDLE)}
+                           onClick={() => { setVersusStatus(GameStatus.IDLE); setPlayerStatus(GameStatus.IDLE); }}
                            className="text-[9px] font-orbitron uppercase text-red-500/70 hover:text-red-500 transition-colors mt-2"
                          >
                            Zakończ Walkę
@@ -231,14 +232,7 @@ const App: React.FC = () => {
         </div>
       </div>
 
-      <button 
-        onClick={() => setControlMethod(prev => prev === 'buttons' ? 'swipe' : 'buttons')}
-        className={`fixed bottom-4 right-4 z-50 w-12 h-12 rounded-full border shadow-2xl flex items-center justify-center transition-all active:scale-90 lg:hidden ${isDark ? 'bg-slate-900 border-slate-700 text-cyan-400' : 'bg-white border-slate-200 text-cyan-600'}`}
-      >
-        <i className={`fa-solid ${controlMethod === 'buttons' ? 'fa-gamepad' : 'fa-hand-pointer'}`}></i>
-      </button>
-
-      <footer className={`mt-12 text-[10px] text-center uppercase tracking-widest max-w-lg transition-colors ${isDark ? 'text-slate-600' : 'text-slate-400'}`}>
+      <footer className={`mt-12 text-[10px] text-center uppercase tracking-widest max-w-lg transition-all duration-300 ${isDark ? 'text-slate-600' : 'text-slate-400'} ${isPlaying ? 'hidden lg:block' : 'block'}`}>
         Walka o dominację: Przegrywa ten, kto dotknie ściany lub siebie. Wygrywa ten, kto pierwszy osiągnie cel.
         <br />
         &copy; {new Date().getFullYear()} Neon Labs • Gemini Engine
