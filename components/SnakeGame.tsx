@@ -490,7 +490,7 @@ const SnakeGame = forwardRef<SnakeGameHandle, SnakeGameProps>(({ onStateChange, 
         onTouchEnd={handleTouchEnd}
         style={{ 
           width: 'min(90vw, 420px)', 
-          height: 'min(90vw, 420px)',
+          height: 'min(85vw, 420px)',
           display: 'grid',
           gridTemplateColumns: `repeat(${game.settings.gridSize}, 1fr)`,
           gridTemplateRows: `repeat(${game.settings.gridSize}, 1fr)`
